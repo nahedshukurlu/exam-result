@@ -12,7 +12,15 @@ const PORT = process.env.PORT || 10000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('client/build'));
+
+// Static files serving
+const buildPath = path.join(__dirname, 'client/build');
+if (fs.existsSync(buildPath)) {
+    app.use(express.static(buildPath));
+    console.log('Static files served from:', buildPath);
+} else {
+    console.log('Build directory not found:', buildPath);
+}
 
 // Uploads qovluğunu yaratmaq
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -277,9 +285,14 @@ app.get('/api/all-results', async (req, res) => {
     }
 });
 
-// React app üçün
+// React app üçün - bütün route-ları React-ə yönləndir
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'), (err) => {
+        if (err) {
+            console.error('Static file error:', err);
+            res.status(500).send('Server error');
+        }
+    });
 });
 
 app.listen(PORT, () => {
