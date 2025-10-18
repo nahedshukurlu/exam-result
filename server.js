@@ -29,6 +29,27 @@ if (fs.existsSync(buildPath)) {
     console.log('Build directory not found:', buildPath);
     console.log('Current working directory:', __dirname);
     console.log('Available directories:', fs.readdirSync(__dirname));
+    
+    // Try alternative paths
+    const altPath1 = path.join(__dirname, 'build');
+    const altPath2 = path.join(process.cwd(), 'client/build');
+    const altPath3 = path.join(process.cwd(), 'build');
+    
+    console.log('Trying alternative path 1:', altPath1, 'exists:', fs.existsSync(altPath1));
+    console.log('Trying alternative path 2:', altPath2, 'exists:', fs.existsSync(altPath2));
+    console.log('Trying alternative path 3:', altPath3, 'exists:', fs.existsSync(altPath3));
+    
+    // Use first available build directory
+    if (fs.existsSync(altPath1)) {
+        app.use(express.static(altPath1));
+        console.log('Using alternative path 1:', altPath1);
+    } else if (fs.existsSync(altPath2)) {
+        app.use(express.static(altPath2));
+        console.log('Using alternative path 2:', altPath2);
+    } else if (fs.existsSync(altPath3)) {
+        app.use(express.static(altPath3));
+        console.log('Using alternative path 3:', altPath3);
+    }
 }
 
 // Uploads qovluğunu yaratmaq
@@ -296,12 +317,44 @@ app.get('/api/all-results', async (req, res) => {
 
 // React app üçün - bütün route-ları React-ə yönləndir
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/build', 'index.html'), (err) => {
-        if (err) {
-            console.error('Static file error:', err);
-            res.status(500).send('Server error');
+    // Try multiple possible paths for index.html
+    const possiblePaths = [
+        path.join(__dirname, 'client/build', 'index.html'),
+        path.join(__dirname, 'build', 'index.html'),
+        path.join(process.cwd(), 'client/build', 'index.html'),
+        path.join(process.cwd(), 'build', 'index.html')
+    ];
+    
+    let indexPath = null;
+    for (const possiblePath of possiblePaths) {
+        if (fs.existsSync(possiblePath)) {
+            indexPath = possiblePath;
+            break;
         }
-    });
+    }
+    
+    if (indexPath) {
+        res.sendFile(indexPath, (err) => {
+            if (err) {
+                console.error('Static file error:', err);
+                res.status(500).send('Server error');
+            }
+        });
+    } else {
+        console.error('index.html not found in any of the expected locations');
+        res.status(404).send(`
+            <html>
+                <body>
+                    <h1>404 - Page Not Found</h1>
+                    <p>Build files not found. Please check the deployment logs.</p>
+                    <p>Expected paths:</p>
+                    <ul>
+                        ${possiblePaths.map(p => `<li>${p}</li>`).join('')}
+                    </ul>
+                </body>
+            </html>
+        `);
+    }
 });
 
 app.listen(PORT, () => {
