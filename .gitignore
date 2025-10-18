@@ -2,8 +2,8 @@
 node_modules/
 client/node_modules/
 
-# Production build
-client/build/
+# Production build (commented out for deployment)
+# client/build/
 
 # CNAME file (if exists)
 CNAME
