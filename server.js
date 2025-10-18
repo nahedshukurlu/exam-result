@@ -15,11 +15,20 @@ app.use(express.json());
 
 // Static files serving
 const buildPath = path.join(__dirname, 'client/build');
+console.log('Looking for build directory at:', buildPath);
+console.log('Directory exists:', fs.existsSync(buildPath));
+
 if (fs.existsSync(buildPath)) {
     app.use(express.static(buildPath));
     console.log('Static files served from:', buildPath);
+    
+    // List files in build directory
+    const files = fs.readdirSync(buildPath);
+    console.log('Build directory contents:', files);
 } else {
     console.log('Build directory not found:', buildPath);
+    console.log('Current working directory:', __dirname);
+    console.log('Available directories:', fs.readdirSync(__dirname));
 }
 
 // Uploads qovluğunu yaratmaq
