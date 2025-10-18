@@ -5,6 +5,9 @@ client/node_modules/
 # Production build
 client/build/
 
+# CNAME file (if exists)
+CNAME
+
 # Environment variables
 .env
 .env.local
