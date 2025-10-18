@@ -91,7 +91,7 @@ const createTable = async () => {
 createTable();
 
 // Admin paneli - Excel fayl yükləmə
-app.post('/api/upload-excel', upload.single('excelFile'), (req, res) => {
+app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
     console.log('Upload request received:', req.file);
     try {
         if (!req.file) {
