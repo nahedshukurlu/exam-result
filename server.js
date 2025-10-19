@@ -52,22 +52,17 @@ if (fs.existsSync(buildPath)) {
     }
 }
 
-// Uploads qovluğunu yaratmaq
-const uploadsDir = path.join(__dirname, 'uploads');
+// Uploads qovluğunu yaratmaq - Render üçün /tmp istifadə et
+const uploadsDir = process.env.NODE_ENV === 'production' 
+    ? path.join('/tmp', 'uploads') 
+    : path.join(__dirname, 'uploads');
+
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Multer konfiqurasiyası
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, uploadsDir);
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'imtahan-' + uniqueSuffix + '.xlsx');
-    }
-});
+// Multer konfiqurasiyası - memory storage istifadə et
+const storage = multer.memoryStorage();
 
 const upload = multer({ 
     storage: storage,
@@ -129,8 +124,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
             return res.status(400).json({ error: 'Excel faylı seçilməyib!' });
         }
 
-        const filePath = req.file.path;
-        const workbook = xlsx.readFile(filePath);
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const data = xlsx.utils.sheet_to_json(worksheet);
@@ -138,11 +132,13 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
         // Excel məlumatlarını veritabanına yazmaq
         let successCount = 0;
         let errorCount = 0;
+        
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const fileName = 'imtahan-' + uniqueSuffix + '.xlsx';
 
         for (let index = 0; index < data.length; index++) {
             const row = data[index];
             try {
-                // Excel sütunlarının adlarını yoxlamaq
                 const kod = row['Kod'] || row['kod'] || row['KOD'] || row['Student Code'] || row['student_code'];
                 const ad = row['Ad'] || row['ad'] || row['AD'] || row['Name'] || row['name'] || row['First Name'];
                 const soyad = row['Soyad'] || row['soyad'] || row['SOYAD'] || row['Surname'] || row['surname'] || row['Last Name'];
@@ -153,7 +149,6 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
                 const sinif = row['Sinif'] || row['sinif'] || row['SINIF'] || row['Class'] || row['class'] || '';
                 const altqrup = row['Altqrup'] || row['altqrup'] || row['ALTQRUP'] || row['Subgroup'] || row['subgroup'] || '';
 
-                // Bütün Excel məlumatlarını JSON formatında saxla
                 const excelData = JSON.stringify(row);
 
                 if (kod && ad && soyad && fenn && bal !== undefined) {
@@ -182,7 +177,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
                             bolme.toString(),
                             sinif.toString(),
                             altqrup.toString(),
-                            req.file.filename,
+                            fileName,
                             excelData
                         ]
                     );
@@ -202,7 +197,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
             message: `${successCount} tələbənin məlumatı uğurla yükləndi`,
             successCount,
             errorCount,
-            fileName: req.file.filename
+            fileName: fileName
         });
 
     } catch (error) {
@@ -288,10 +283,28 @@ app.get('/api/check-result/:kod', async (req, res) => {
 
 // Nümunə Excel faylını yükləmək
 app.get('/api/download-sample-excel', (req, res) => {
-    const sampleFilePath = '/Users/shukurlun/Desktop/imtahan/sample_imtahan_neticeleri.xlsx';
+    const sampleFilePath = process.env.NODE_ENV === 'production' 
+        ? null 
+        : '/Users/shukurlun/Desktop/imtahan/sample_imtahan_neticeleri.xlsx';
     
-    if (!fs.existsSync(sampleFilePath)) {
-        return res.status(404).json({ error: 'Nümunə fayl tapılmadı!' });
+    if (!sampleFilePath || !fs.existsSync(sampleFilePath)) {
+        return res.status(404).json({ 
+            error: 'Nümunə fayl tapılmadı! Zəhmət olmasa Excel faylınızı yükləyərkən aşağıdakı formatı istifadə edin:',
+            format: {
+                sütunlar: ['Kod', 'Ad', 'Soyad', 'Fənn', 'Bal', 'Variant', 'Bölmə', 'Sinif', 'Altqrup'],
+                nümunə: {
+                    'Kod': '12345',
+                    'Ad': 'Əli',
+                    'Soyad': 'Məmmədov',
+                    'Fənn': 'Riyaziyyat',
+                    'Bal': 85,
+                    'Variant': 'A',
+                    'Bölmə': '1',
+                    'Sinif': '9',
+                    'Altqrup': 'a'
+                }
+            }
+        });
     }
 
     res.download(sampleFilePath, 'nümunə_imtahan_neticeleri.xlsx', (err) => {
