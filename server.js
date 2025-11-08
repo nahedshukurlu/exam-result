@@ -115,6 +115,12 @@ const uploadPdf = multer({
 
 // SQLite veritabanı
 const dbPath = process.env.DATABASE_URL || path.join(__dirname, 'imtahan.db');
+// Veritabanı directory-sini yarat (Render.com üçün)
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+    console.log('Database directory created:', dbDir);
+}
 const db = new Database(dbPath);
 
 // Veritabanı cədvəlini yaratmaq
