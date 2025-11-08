@@ -2,10 +2,14 @@ import React, { useState } from 'react';
 import axios from 'axios';
 
 const StudentPanel = () => {
+  const [activeTab, setActiveTab] = useState('results'); // 'results' or 'topics'
   const [kod, setKod] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedClass, setSelectedClass] = useState('');
+  const [pdfAvailable, setPdfAvailable] = useState(false);
+  const [checkingPdf, setCheckingPdf] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,217 +44,418 @@ const StudentPanel = () => {
     setError('');
   };
 
+  const handleClassChange = async (e) => {
+    const sinif = e.target.value;
+    setSelectedClass(sinif);
+    
+    if (sinif) {
+      // PDF-in mövcud olub olmadığını yoxla
+      setCheckingPdf(true);
+      try {
+        const response = await axios.get(`/api/view-pdf/${sinif}`, {
+          responseType: 'blob',
+          validateStatus: (status) => status < 500 // 404-ü də qəbul et
+        });
+        setPdfAvailable(response.status === 200);
+      } catch (err) {
+        setPdfAvailable(false);
+      } finally {
+        setCheckingPdf(false);
+      }
+    } else {
+      setPdfAvailable(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedClass) return;
+    
+    try {
+      const response = await axios.get(`/api/download-pdf/${selectedClass}`, {
+        responseType: 'blob'
+      });
+      
+      // Content-Type-u response header-dan al
+      const contentType = response.headers['content-type'] || 'application/octet-stream';
+      const blob = new Blob([response.data], { type: contentType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // Content-Disposition header-dan fayl adını al, yoxsa default istifadə et
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = `${selectedClass}-ci_sinif_movzulari`;
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      link.download = filename;
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Fayl download xətası:', err);
+      alert('Fayl yüklənərkən xəta baş verdi!');
+    }
+  };
+
+  const handleViewPdf = () => {
+    if (!selectedClass) return;
+    // Faylı yeni pəncərədə aç
+    const fileUrl = `/api/view-pdf/${selectedClass}`;
+    window.open(fileUrl, '_blank');
+  };
+
+  // Sinif seçimləri
+  const classes = Array.from({ length: 11 }, (_, i) => i + 1);
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="bg-white shadow-lg rounded-lg p-8">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">
-            İmtahan Nəticələri
-          </h2>
-          <p className="text-gray-600">
-            Kodunuzu daxil edərək imtahan nəticələrinizi yoxlayın
-          </p>
+        {/* Tab Navigation */}
+        <div className="mb-8 border-b border-gray-200">
+          <nav className="flex space-x-8" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('results')}
+              className={`${
+                activeTab === 'results'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              İmtahan Nəticələri
+            </button>
+            <button
+              onClick={() => setActiveTab('topics')}
+              className={`${
+                activeTab === 'topics'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              İmtahan Mövzuları
+            </button>
+          </nav>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="kod" className="block text-sm font-medium text-gray-700 mb-2">
-              Tələbə Kodu
-            </label>
-            <input
-              type="text"
-              id="kod"
-              value={kod}
-              onChange={(e) => setKod(e.target.value)}
-              placeholder="Kodunuzu daxil edin..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg"
-              disabled={loading}
-            />
-          </div>
-
-          <div className="flex space-x-4">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 bg-primary-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Yoxlanılır...
-                </span>
-              ) : (
-                'Nəticəni Yoxla'
-              )}
-            </button>
-            
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-            >
-              Təmizlə
-            </button>
-          </div>
-        </form>
-
-        {error && (
-          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-800">{error}</p>
-              </div>
+        {/* Results Tab Content */}
+        {activeTab === 'results' && (
+          <>
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                İmtahan Nəticələri
+              </h2>
+              <p className="text-gray-600">
+                Kodunuzu daxil edərək imtahan nəticələrinizi yoxlayın
+              </p>
             </div>
-          </div>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label htmlFor="kod" className="block text-sm font-medium text-gray-700 mb-2">
+                  Tələbə Kodu
+                </label>
+                <input
+                  type="text"
+                  id="kod"
+                  value={kod}
+                  onChange={(e) => setKod(e.target.value)}
+                  placeholder="Kodunuzu daxil edin..."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg"
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="flex space-x-4">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-primary-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Yoxlanılır...
+                    </span>
+                  ) : (
+                    'Nəticəni Yoxla'
+                  )}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                >
+                  Təmizlə
+                </button>
+              </div>
+            </form>
+
+            {error && (
+              <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-800">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {result && (
+              <div className="mt-6 bg-white rounded-lg shadow-lg overflow-hidden">
+                {/* Ümumi bal başlığı */}
+                <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-center py-8">
+                  <div className="text-6xl font-bold mb-2">{result.umumiBal}</div>
+                  <div className="text-xl">Ümumi bal</div>
+                </div>
+
+                {/* Tələbə məlumatları */}
+                <div className="p-6">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Sınaq 2</h2>
+                    
+                    <div className="grid grid-cols-2 gap-4 text-left max-w-md mx-auto">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Ad və soyad:</span>
+                        <span className="font-medium">{result.ad} {result.soyad}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">İş nömrəsi:</span>
+                        <span className="font-medium">{result.kod}</span>
+                      </div>
+                      {result.variant && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Variant:</span>
+                          <span className="font-medium">{result.variant}</span>
+                        </div>
+                      )}
+                      {result.bolme && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Bölmə:</span>
+                          <span className="font-medium">{result.bolme}</span>
+                        </div>
+                      )}
+                      {result.sinif && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Sinif:</span>
+                          <span className="font-medium">{result.sinif}</span>
+                        </div>
+                      )}
+                      {result.altqrup && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Altqrup:</span>
+                          <span className="font-medium">{result.altqrup}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Fənnlər cədvəli */}
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Fənn
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Uğur faizi
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Bal
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {result.fennler.map((fenn, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {fenn.fenn}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {fenn.bal.toFixed(2)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {fenn.bal}
+                            </td>
+                          </tr>
+                        ))}
+                        {/* Ümumi sətir */}
+                        <tr className="border-t-2 border-gray-800 font-bold bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">Ümumi</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
+                            {(result.umumiBal / result.fennSayi).toFixed(2)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{result.umumiBal}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Əlavə Excel məlumatları */}
+                  {result.excelData && Object.keys(result.excelData).length > 0 && (
+                    <div className="mt-8">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-4">Əlavə Məlumatlar</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {Object.entries(result.excelData).map(([key, values]) => {
+                          // Standart sütunları göstərmə (artıq yuxarıda göstərilir)
+                          const standardColumns = ['Kod', 'kod', 'KOD', 'Ad', 'ad', 'AD', 'Soyad', 'soyad', 'SOYAD', 
+                            'Fənn', 'fenn', 'FENN', 'Bal', 'bal', 'BAL', 'Variant', 'variant', 'VARIANT', 
+                            'Bölmə', 'bölmə', 'BOLME', 'Sinif', 'sinif', 'SINIF', 'Altqrup', 'altqrup', 'ALTQRUP',
+                            'Student Code', 'student_code', 'Name', 'name', 'First Name', 'Surname', 'surname', 
+                            'Last Name', 'Subject', 'subject', 'Course', 'Score', 'score', 'Grade', 'grade', 
+                            'Section', 'section', 'Class', 'class', 'Subgroup', 'subgroup'];
+                          
+                          if (standardColumns.includes(key)) {
+                            return null;
+                          }
+
+                          // Unikal dəyərləri göstər
+                          const uniqueValues = [...new Set(values.filter(v => v !== null && v !== undefined && v !== ''))];
+                          if (uniqueValues.length === 0) {
+                            return null;
+                          }
+
+                          return (
+                            <div key={key} className="bg-gray-50 rounded-lg p-4">
+                              <h4 className="font-medium text-gray-700 mb-2 capitalize">
+                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                              </h4>
+                              <div className="text-sm text-gray-600">
+                                {uniqueValues.length === 1 ? (
+                                  <span className="font-medium">{uniqueValues[0]}</span>
+                                ) : (
+                                  <ul className="list-disc list-inside space-y-1">
+                                    {uniqueValues.map((value, index) => (
+                                      <li key={index}>{value}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {result && (
-          <div className="mt-6 bg-white rounded-lg shadow-lg overflow-hidden">
-            {/* Ümumi bal başlığı */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-center py-8">
-              <div className="text-6xl font-bold mb-2">{result.umumiBal}</div>
-              <div className="text-xl">Ümumi bal</div>
+        {/* Topics Tab Content */}
+        {activeTab === 'topics' && (
+          <>
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+                İmtahan Mövzuları
+              </h2>
+              <p className="text-gray-600">
+                Hansı sinif mövzularını oxumaq istəyirsiniz?
+              </p>
             </div>
 
-            {/* Tələbə məlumatları */}
-            <div className="p-6">
-              <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">Sınaq 2</h2>
-                
-                <div className="grid grid-cols-2 gap-4 text-left max-w-md mx-auto">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Ad və soyad:</span>
-                    <span className="font-medium">{result.ad} {result.soyad}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">İş nömrəsi:</span>
-                    <span className="font-medium">{result.kod}</span>
-                  </div>
-                  {result.variant && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Variant:</span>
-                      <span className="font-medium">{result.variant}</span>
-                    </div>
-                  )}
-                  {result.bolme && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Bölmə:</span>
-                      <span className="font-medium">{result.bolme}</span>
-                    </div>
-                  )}
-                  {result.sinif && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Sinif:</span>
-                      <span className="font-medium">{result.sinif}</span>
-                    </div>
-                  )}
-                  {result.altqrup && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Altqrup:</span>
-                      <span className="font-medium">{result.altqrup}</span>
-                    </div>
-                  )}
-                </div>
+            <div className="space-y-6">
+              <div>
+                <label htmlFor="sinif" className="block text-sm font-medium text-gray-700 mb-2">
+                  Sinif Seçin
+                </label>
+                <select
+                  id="sinif"
+                  value={selectedClass}
+                  onChange={handleClassChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg appearance-none bg-white cursor-pointer"
+                >
+                  <option value="">Sinif seçin...</option>
+                  {classes.map((sinif) => (
+                    <option key={sinif} value={sinif}>
+                      {sinif}-ci sinif
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Fənnlər cədvəli */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Fənn
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Uğur faizi
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Bal
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {result.fennler.map((fenn, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {fenn.fenn}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                          {fenn.bal.toFixed(2)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                          {fenn.bal}
-                        </td>
-                      </tr>
-                    ))}
-                    {/* Ümumi sətir */}
-                    <tr className="border-t-2 border-gray-800 font-bold bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">Ümumi</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                        {(result.umumiBal / result.fennSayi).toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{result.umumiBal}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Əlavə Excel məlumatları */}
-              {result.excelData && Object.keys(result.excelData).length > 0 && (
-                <div className="mt-8">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Əlavə Məlumatlar</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Object.entries(result.excelData).map(([key, values]) => {
-                      // Standart sütunları göstərmə (artıq yuxarıda göstərilir)
-                      const standardColumns = ['Kod', 'kod', 'KOD', 'Ad', 'ad', 'AD', 'Soyad', 'soyad', 'SOYAD', 
-                        'Fənn', 'fenn', 'FENN', 'Bal', 'bal', 'BAL', 'Variant', 'variant', 'VARIANT', 
-                        'Bölmə', 'bölmə', 'BOLME', 'Sinif', 'sinif', 'SINIF', 'Altqrup', 'altqrup', 'ALTQRUP',
-                        'Student Code', 'student_code', 'Name', 'name', 'First Name', 'Surname', 'surname', 
-                        'Last Name', 'Subject', 'subject', 'Course', 'Score', 'score', 'Grade', 'grade', 
-                        'Section', 'section', 'Class', 'class', 'Subgroup', 'subgroup'];
-                      
-                      if (standardColumns.includes(key)) {
-                        return null;
-                      }
-
-                      // Unikal dəyərləri göstər
-                      const uniqueValues = [...new Set(values.filter(v => v !== null && v !== undefined && v !== ''))];
-                      if (uniqueValues.length === 0) {
-                        return null;
-                      }
-
-                      return (
-                        <div key={key} className="bg-gray-50 rounded-lg p-4">
-                          <h4 className="font-medium text-gray-700 mb-2 capitalize">
-                            {key.replace(/([A-Z])/g, ' $1').trim()}
-                          </h4>
-                          <div className="text-sm text-gray-600">
-                            {uniqueValues.length === 1 ? (
-                              <span className="font-medium">{uniqueValues[0]}</span>
-                            ) : (
-                              <ul className="list-disc list-inside space-y-1">
-                                {uniqueValues.map((value, index) => (
-                                  <li key={index}>{value}</li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
+              {selectedClass && (
+                <div className="mt-6 space-y-4">
+                  {checkingPdf ? (
+                    <div className="p-6 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="flex items-center justify-center">
+                        <svg className="animate-spin h-5 w-5 text-gray-400 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p className="text-sm text-gray-600">Yoxlanılır...</p>
+                      </div>
+                    </div>
+                  ) : pdfAvailable ? (
+                    <div className="p-6 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center mb-4">
+                        <div className="flex-shrink-0">
+                          <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="ml-3">
+                          <p className="text-sm text-green-800 font-medium">
+                            {selectedClass}-ci sinif üçün mövzu sənədləri mövcuddur
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex space-x-3">
+                        <button
+                          onClick={handleViewPdf}
+                          className="flex-1 bg-primary-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors flex items-center justify-center"
+                        >
+                          <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          Online Görüntülə
+                        </button>
+                        <button
+                          onClick={handleDownloadPdf}
+                          className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors flex items-center justify-center"
+                        >
+                          <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Yüklə
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0">
+                          <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <p className="text-sm text-yellow-800">
+                            <span className="font-medium">{selectedClass}-ci sinif</span> üçün mövzu sənədləri hələ yüklənməyib.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>

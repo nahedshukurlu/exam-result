@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const xlsx = require('xlsx');
-const { Pool } = require('pg');
+const Database = require('better-sqlite3');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 10000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Form data üçün
 
 // Static files serving
 const buildPath = path.join(__dirname, 'client/build');
@@ -61,6 +62,15 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// PDF faylları üçün qovluq
+const pdfDir = process.env.NODE_ENV === 'production' 
+    ? path.join('/tmp', 'pdfs') 
+    : path.join(__dirname, 'uploads', 'pdfs');
+
+if (!fs.existsSync(pdfDir)) {
+    fs.mkdirSync(pdfDir, { recursive: true });
+}
+
 // Multer konfiqurasiyası - memory storage istifadə et
 const storage = multer.memoryStorage();
 
@@ -81,18 +91,37 @@ const upload = multer({
     }
 });
 
-// PostgreSQL veritabanı
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/imtahan',
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+// Fayl yükləmə üçün multer konfiqurasiyası - disk storage (istənilən format)
+const pdfStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, pdfDir);
+    },
+    filename: function (req, file, cb) {
+        const sinif = req.body.sinif || 'unknown';
+        // Orijinal fayl uzantısını saxla
+        const originalExt = path.extname(file.originalname);
+        const fileName = `sinif_${sinif}${originalExt}`;
+        cb(null, fileName);
+    }
 });
 
+const uploadPdf = multer({ 
+    storage: pdfStorage,
+    // Format məhdudiyyəti yoxdur - istənilən format qəbul edilir
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 50MB limit
+    }
+});
+
+// SQLite veritabanı
+const dbPath = process.env.DATABASE_URL || path.join(__dirname, 'imtahan.db');
+const db = new Database(dbPath);
+
 // Veritabanı cədvəlini yaratmaq
-const createTable = async () => {
+const createTable = () => {
     try {
-        await pool.query(`DROP TABLE IF EXISTS imtahan_neticeleri`);
-        await pool.query(`CREATE TABLE imtahan_neticeleri (
-            id SERIAL PRIMARY KEY,
+        db.exec(`CREATE TABLE IF NOT EXISTS imtahan_neticeleri (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             kod TEXT NOT NULL,
             ad TEXT NOT NULL,
             soyad TEXT NOT NULL,
@@ -103,11 +132,21 @@ const createTable = async () => {
             sinif TEXT,
             altqrup TEXT,
             fayl_adi TEXT NOT NULL,
-            yuklenme_tarixi TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            yuklenme_tarixi DATETIME DEFAULT CURRENT_TIMESTAMP,
             excel_data TEXT,
             UNIQUE(kod, fenn)
         )`);
-        console.log('PostgreSQL cədvəli yaradıldı');
+        
+        // PDF faylları üçün cədvəl
+        db.exec(`CREATE TABLE IF NOT EXISTS sinif_pdf (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sinif INTEGER NOT NULL UNIQUE,
+            fayl_adi TEXT NOT NULL,
+            fayl_yolu TEXT NOT NULL,
+            yuklenme_tarixi DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+        
+        console.log('SQLite cədvəlləri yaradıldı');
     } catch (err) {
         console.error('Veritabanı xətası:', err);
     }
@@ -152,34 +191,35 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
                 const excelData = JSON.stringify(row);
 
                 if (kod && ad && soyad && fenn && bal !== undefined) {
-                    await pool.query(
-                        `INSERT INTO imtahan_neticeleri 
+                    const insert = db.prepare(`
+                        INSERT INTO imtahan_neticeleri 
                         (kod, ad, soyad, fenn, bal, variant, bolme, sinif, altqrup, fayl_adi, excel_data) 
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                        ON CONFLICT (kod, fenn) DO UPDATE SET
-                        ad = EXCLUDED.ad,
-                        soyad = EXCLUDED.soyad,
-                        bal = EXCLUDED.bal,
-                        variant = EXCLUDED.variant,
-                        bolme = EXCLUDED.bolme,
-                        sinif = EXCLUDED.sinif,
-                        altqrup = EXCLUDED.altqrup,
-                        fayl_adi = EXCLUDED.fayl_adi,
-                        excel_data = EXCLUDED.excel_data,
-                        yuklenme_tarixi = CURRENT_TIMESTAMP`,
-                        [
-                            kod.toString(), 
-                            ad.toString(), 
-                            soyad.toString(), 
-                            fenn.toString(), 
-                            parseInt(bal),
-                            variant.toString(),
-                            bolme.toString(),
-                            sinif.toString(),
-                            altqrup.toString(),
-                            fileName,
-                            excelData
-                        ]
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(kod, fenn) DO UPDATE SET
+                        ad = excluded.ad,
+                        soyad = excluded.soyad,
+                        bal = excluded.bal,
+                        variant = excluded.variant,
+                        bolme = excluded.bolme,
+                        sinif = excluded.sinif,
+                        altqrup = excluded.altqrup,
+                        fayl_adi = excluded.fayl_adi,
+                        excel_data = excluded.excel_data,
+                        yuklenme_tarixi = CURRENT_TIMESTAMP
+                    `);
+                    
+                    insert.run(
+                        kod.toString(), 
+                        ad.toString(), 
+                        soyad.toString(), 
+                        fenn.toString(), 
+                        parseInt(bal),
+                        variant.toString(),
+                        bolme.toString(),
+                        sinif.toString(),
+                        altqrup.toString(),
+                        fileName,
+                        excelData
                     );
                     successCount++;
                 } else {
@@ -211,12 +251,8 @@ app.get('/api/check-result/:kod', async (req, res) => {
     const kod = req.params.kod;
 
     try {
-        const result = await pool.query(
-            'SELECT * FROM imtahan_neticeleri WHERE kod = $1 ORDER BY fenn',
-            [kod]
-        );
-
-        const rows = result.rows;
+        const stmt = db.prepare('SELECT * FROM imtahan_neticeleri WHERE kod = ? ORDER BY fenn');
+        const rows = stmt.all(kod);
 
         if (rows && rows.length > 0) {
             // Tələbə məlumatlarını ilk sətirdən götür
@@ -320,10 +356,186 @@ app.get('/api/download-sample-excel', (req, res) => {
 // Bütün nəticələri göstərmək (admin üçün)
 app.get('/api/all-results', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM imtahan_neticeleri ORDER BY yuklenme_tarixi DESC');
-        res.json({ success: true, data: result.rows });
+        const stmt = db.prepare('SELECT * FROM imtahan_neticeleri ORDER BY yuklenme_tarixi DESC');
+        const rows = stmt.all();
+        res.json({ success: true, data: rows });
     } catch (err) {
         console.error('Veritabanı xətası:', err);
+        return res.status(500).json({ error: 'Veritabanı xətası!' });
+    }
+});
+
+// Fayl yükləmə (admin üçün - istənilən format)
+app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
+    console.log('File upload request received');
+    console.log('Request body:', req.body);
+    console.log('Request file:', req.file ? 'File exists' : 'No file');
+    console.log('Sinif from body:', req.body.sinif);
+    
+    try {
+        if (!req.file) {
+            console.log('No file in request');
+            return res.status(400).json({ error: 'Fayl seçilməyib!' });
+        }
+
+        const sinif = parseInt(req.body.sinif);
+        console.log('Parsed sinif:', sinif);
+        if (!sinif || sinif < 1 || sinif > 11) {
+            // Əgər fayl yüklənibsə, onu sil
+            if (req.file && fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(400).json({ error: 'Düzgün sinif nömrəsi daxil edin (1-11)!' });
+        }
+
+        // Orijinal fayl uzantısını istifadə et
+        const originalExt = path.extname(req.file.originalname);
+        const fileName = `sinif_${sinif}${originalExt}`;
+        const filePath = path.join(pdfDir, fileName);
+
+        // Əgər köhnə fayl varsa, onu sil
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        // Yeni faylı köçür
+        fs.renameSync(req.file.path, filePath);
+
+        // Veritabanına yaz
+        const insert = db.prepare(`
+            INSERT INTO sinif_pdf (sinif, fayl_adi, fayl_yolu)
+            VALUES (?, ?, ?)
+            ON CONFLICT(sinif) DO UPDATE SET
+            fayl_adi = excluded.fayl_adi,
+            fayl_yolu = excluded.fayl_yolu,
+            yuklenme_tarixi = CURRENT_TIMESTAMP
+        `);
+        
+        insert.run(sinif, fileName, filePath);
+
+        res.json({
+            success: true,
+            message: `${sinif}-ci sinif üçün PDF faylı uğurla yükləndi`,
+            sinif: sinif,
+            fileName: fileName
+        });
+
+    } catch (error) {
+        console.error('PDF fayl yükləmə xətası:', error);
+        // Əgər fayl yüklənibsə, onu sil
+        if (req.file && fs.existsSync(req.file.path)) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (unlinkErr) {
+                console.error('Fayl silinərkən xəta:', unlinkErr);
+            }
+        }
+        res.status(500).json({ error: 'PDF fayl yüklənərkən xəta baş verdi: ' + error.message });
+    }
+});
+
+// Fayl yükləmə (download üçün - istənilən format)
+app.get('/api/download-pdf/:sinif', (req, res) => {
+    const sinif = parseInt(req.params.sinif);
+    
+    if (!sinif || sinif < 1 || sinif > 11) {
+        return res.status(400).json({ error: 'Düzgün sinif nömrəsi daxil edin (1-11)!' });
+    }
+
+    try {
+        const stmt = db.prepare('SELECT * FROM sinif_pdf WHERE sinif = ?');
+        const pdfRecord = stmt.get(sinif);
+
+        if (!pdfRecord || !fs.existsSync(pdfRecord.fayl_yolu)) {
+            return res.status(404).json({ error: `${sinif}-ci sinif üçün fayl tapılmadı!` });
+        }
+
+        res.download(pdfRecord.fayl_yolu, pdfRecord.fayl_adi, (err) => {
+            if (err) {
+                console.error('File download xətası:', err);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Fayl yüklənərkən xəta baş verdi!' });
+                }
+            }
+        });
+    } catch (err) {
+        console.error('File download xətası:', err);
+        return res.status(500).json({ error: 'Veritabanı xətası!' });
+    }
+});
+
+// Fayl görüntüləmə (online - istənilən format)
+app.get('/api/view-pdf/:sinif', (req, res) => {
+    const sinif = parseInt(req.params.sinif);
+    
+    if (!sinif || sinif < 1 || sinif > 11) {
+        return res.status(400).json({ error: 'Düzgün sinif nömrəsi daxil edin (1-11)!' });
+    }
+
+    try {
+        const stmt = db.prepare('SELECT * FROM sinif_pdf WHERE sinif = ?');
+        const pdfRecord = stmt.get(sinif);
+
+        if (!pdfRecord || !fs.existsSync(pdfRecord.fayl_yolu)) {
+            return res.status(404).json({ error: `${sinif}-ci sinif üçün fayl tapılmadı!` });
+        }
+
+        // Fayl ölçüsünü al
+        const stats = fs.statSync(pdfRecord.fayl_yolu);
+        const fileSize = stats.size;
+
+        // Fayl uzantısına görə Content-Type təyin et
+        const ext = path.extname(pdfRecord.fayl_adi).toLowerCase();
+        const mimeTypes = {
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.xls': 'application/vnd.ms-excel',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.txt': 'text/plain',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif'
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+        // Headers təyin et
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `inline; filename="${pdfRecord.fayl_adi}"`);
+        res.setHeader('Content-Length', fileSize);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+
+        // File stream yarat və pipe et
+        const fileStream = fs.createReadStream(pdfRecord.fayl_yolu);
+        
+        fileStream.on('error', (err) => {
+            console.error('PDF file stream error:', err);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'PDF faylı oxunarkən xəta baş verdi!' });
+            } else {
+                res.end();
+            }
+        });
+
+        fileStream.pipe(res);
+    } catch (err) {
+        console.error('PDF görüntüləmə xətası:', err);
+        if (!res.headersSent) {
+            return res.status(500).json({ error: 'PDF faylı görüntülənərkən xəta baş verdi!' });
+        }
+    }
+});
+
+// Bütün mövcud PDF fayllarını göstərmək
+app.get('/api/list-pdfs', (req, res) => {
+    try {
+        const stmt = db.prepare('SELECT sinif, fayl_adi, yuklenme_tarixi FROM sinif_pdf ORDER BY sinif');
+        const rows = stmt.all();
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        console.error('PDF siyahısı xətası:', err);
         return res.status(500).json({ error: 'Veritabanı xətası!' });
     }
 });
