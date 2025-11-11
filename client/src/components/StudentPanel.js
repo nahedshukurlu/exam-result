@@ -25,10 +25,19 @@ const StudentPanel = () => {
     try {
       const response = await axios.get(`/api/check-result/${kod.trim()}`);
       
-      if (response.data.success) {
-        setResult(response.data.data);
+      if (response.data.success && response.data.data) {
+        // API-dən gələn data-nı yoxla və subjects array-ini təmin et
+        const data = response.data.data;
+        if (!data.subjects || !Array.isArray(data.subjects)) {
+          console.error('API-dən gələn data-da subjects array yoxdur:', data);
+          setError('Nəticə məlumatları düzgün formatda deyil!');
+          setResult(null);
+        } else {
+          setResult(data);
+        }
       } else {
         setError(response.data.message || 'Nəticə tapılmadı!');
+        setResult(null);
       }
     } catch (err) {
       setError('Xəta baş verdi. Zəhmət olmasa yenidən cəhd edin.');
@@ -288,7 +297,7 @@ const StudentPanel = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {result.subjects && result.subjects.length > 0 ? result.subjects.map((subject, index) => (
+                        {result && result.subjects && Array.isArray(result.subjects) && result.subjects.length > 0 ? result.subjects.map((subject, index) => (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                               {subject.subject}
@@ -317,7 +326,7 @@ const StudentPanel = () => {
                           </tr>
                         )}
                         {/* Ümumi sətir */}
-                        {result.subjects && result.subjects.length > 0 && (
+                        {result && result.subjects && Array.isArray(result.subjects) && result.subjects.length > 0 && (
                           <tr className="border-t-2 border-gray-800 font-bold bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">Ümumi</td>
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900"></td>

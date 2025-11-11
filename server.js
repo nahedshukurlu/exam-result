@@ -384,17 +384,18 @@ app.get('/api/check-result/:kod', async (req, res) => {
             // Bütün fənləri və əlavə məlumatları topla - olduğu kimi qaytar
             const subjects = rows.map(row => {
                 return {
-                    subject: row.subject,
-                    result: row.result,
-                    correctAnswer: row.correctAnswer,
-                    wrongAnswer: row.wrongAnswer,
-                    openQuestion: row.openQuestion,
-                    successRate: row.successRate
+                    subject: row.subject || '',
+                    result: row.result !== undefined && row.result !== null ? row.result : null,
+                    correctAnswer: row.correctAnswer !== undefined && row.correctAnswer !== null ? row.correctAnswer : null,
+                    wrongAnswer: row.wrongAnswer !== undefined && row.wrongAnswer !== null ? row.wrongAnswer : null,
+                    openQuestion: row.openQuestion !== undefined && row.openQuestion !== null ? row.openQuestion : null,
+                    successRate: row.successRate !== undefined && row.successRate !== null ? row.successRate : null
                 };
             });
 
             // Ümumi bal hesabla (bütün fənlərin cəmi) - yalnız hesablama üçün parse et
             const totalResult = subjects.reduce((sum, subj) => {
+                if (subj.result === undefined || subj.result === null) return sum;
                 const value = typeof subj.result === 'number' ? subj.result : (parseFloat(subj.result) || 0);
                 return sum + value;
             }, 0);
@@ -422,10 +423,10 @@ app.get('/api/check-result/:kod', async (req, res) => {
                 success: true,
                 data: {
                     ...studentInfo,
-                    subjects: subjects,
-                    totalResult: totalResult,
-                    subjectCount: rows.length,
-                    excelData: allExcelData
+                    subjects: subjects || [], // Həmişə array olsun
+                    totalResult: totalResult || 0,
+                    subjectCount: rows.length || 0,
+                    excelData: allExcelData || {}
                 }
             });
         } else {
