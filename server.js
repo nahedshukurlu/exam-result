@@ -114,37 +114,114 @@ const uploadPdf = multer({
 });
 
 // MongoDB connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://nahedshukurlu_db_user:EebPHBmTA12QOD03@exam-result.bjiyluu.mongodb.net/';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://nahedshukurlu_db_user:EebPHBmTA12QOD03@exam-result.bjiyluu.mongodb.net/imtahan_db?retryWrites=true&w=majority';
 const DB_NAME = 'imtahan_db';
 let client;
 let db;
+let isConnecting = false;
+let connectionRetries = 0;
+const MAX_RETRIES = 5;
 
 // MongoDB-yə qoşulmaq
-const connectToMongoDB = async () => {
+const connectToMongoDB = async (retry = false) => {
+    if (isConnecting && !retry) {
+        console.log('MongoDB connection artıq davam edir...');
+        return;
+    }
+    
+    if (db && client) {
+        try {
+            // Connection-ın aktiv olub olmadığını yoxla
+            await client.db('admin').admin().ping();
+            return;
+        } catch (err) {
+            console.log('MongoDB connection aktiv deyil, yenidən qoşulur...');
+            client = null;
+            db = null;
+        }
+    }
+    
+    isConnecting = true;
+    
     try {
-        client = new MongoClient(MONGODB_URI);
+        const connectionOptions = {
+            serverSelectionTimeoutMS: 30000, // 30 saniyə
+            socketTimeoutMS: 45000, // 45 saniyə
+            connectTimeoutMS: 30000, // 30 saniyə
+            retryWrites: true,
+            retryReads: true,
+            maxPoolSize: 10,
+            minPoolSize: 1,
+            maxIdleTimeMS: 30000,
+            heartbeatFrequencyMS: 10000,
+            // SSL/TLS konfiqurasiyası
+            tls: true,
+            tlsAllowInvalidCertificates: false,
+            tlsAllowInvalidHostnames: false,
+            // Connection pool konfiqurasiyası
+            maxConnecting: 2
+        };
+        
+        client = new MongoClient(MONGODB_URI, connectionOptions);
         await client.connect();
         db = client.db(DB_NAME);
+        
+        // Connection-ı test et
+        await db.admin().ping();
+        
         console.log('MongoDB-yə uğurla qoşuldu');
+        connectionRetries = 0;
         
         // Index yarat (code və subject üçün unique)
-        const resultsCollection = db.collection('imtahan_neticeleri');
-        await resultsCollection.createIndex({ code: 1, subject: 1 }, { unique: true });
-        console.log('MongoDB index-ləri yaradıldı');
+        try {
+            const resultsCollection = db.collection('imtahan_neticeleri');
+            await resultsCollection.createIndex({ code: 1, subject: 1 }, { unique: true });
+            console.log('MongoDB index-ləri yaradıldı');
+        } catch (indexErr) {
+            // Index artıq varsa, xəta vermə
+            if (indexErr.code !== 85) { // 85 = IndexOptionsConflict
+                console.error('Index yaratma xətası:', indexErr);
+            }
+        }
+        
+        isConnecting = false;
     } catch (err) {
-        console.error('MongoDB qoşulma xətası:', err);
-        throw err;
+        isConnecting = false;
+        connectionRetries++;
+        console.error(`MongoDB qoşulma xətası (cəhd ${connectionRetries}/${MAX_RETRIES}):`, err.message);
+        
+        if (connectionRetries < MAX_RETRIES) {
+            const retryDelay = Math.min(1000 * Math.pow(2, connectionRetries), 10000); // Exponential backoff
+            console.log(`${retryDelay}ms sonra yenidən cəhd ediləcək...`);
+            setTimeout(() => {
+                connectToMongoDB(true).catch(console.error);
+            }, retryDelay);
+        } else {
+            console.error('MongoDB-yə qoşula bilmədi, maksimum cəhd sayına çatıldı');
+            throw err;
+        }
     }
 };
 
 // MongoDB-yə qoşul
-connectToMongoDB().catch(console.error);
+connectToMongoDB().catch((err) => {
+    console.error('İlkin MongoDB connection uğursuz oldu:', err.message);
+    // Server işləməyə davam etsin, sonra yenidən cəhd edəcək
+});
 
 // Admin paneli - Excel fayl yükləmə
 app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
     console.log('Upload request received:', req.file);
     try {
-        if (!db) {
+        if (!db || !client) {
+            await connectToMongoDB();
+        }
+        
+        // Connection-ı yoxla
+        try {
+            await client.db('admin').admin().ping();
+        } catch (err) {
+            console.log('MongoDB connection kəsildi, yenidən qoşulur...');
             await connectToMongoDB();
         }
         
@@ -276,7 +353,15 @@ app.get('/api/check-result/:kod', async (req, res) => {
     const kod = req.params.kod;
 
     try {
-        if (!db) {
+        if (!db || !client) {
+            await connectToMongoDB();
+        }
+        
+        // Connection-ı yoxla
+        try {
+            await client.db('admin').admin().ping();
+        } catch (err) {
+            console.log('MongoDB connection kəsildi, yenidən qoşulur...');
             await connectToMongoDB();
         }
         
@@ -392,7 +477,15 @@ app.get('/api/download-sample-excel', (req, res) => {
 // Bütün nəticələri göstərmək (admin üçün)
 app.get('/api/all-results', async (req, res) => {
     try {
-        if (!db) {
+        if (!db || !client) {
+            await connectToMongoDB();
+        }
+        
+        // Connection-ı yoxla
+        try {
+            await client.db('admin').admin().ping();
+        } catch (err) {
+            console.log('MongoDB connection kəsildi, yenidən qoşulur...');
             await connectToMongoDB();
         }
         
@@ -631,8 +724,13 @@ app.listen(PORT, async () => {
     console.log(`Tələbə paneli: http://localhost:${PORT}/`);
     
     // MongoDB-yə qoşul
-    if (!db) {
-        await connectToMongoDB();
+    if (!db || !client) {
+        try {
+            await connectToMongoDB();
+        } catch (err) {
+            console.error('Server başlananda MongoDB-yə qoşula bilmədi:', err.message);
+            console.log('Server işləməyə davam edir, MongoDB connection sonra yenidən cəhd ediləcək');
+        }
     }
 });
 
