@@ -9,12 +9,9 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Form data üçün
-
-// Static files serving
+app.use(express.urlencoded({ extended: true })); 
 const buildPath = path.join(__dirname, 'client/build');
 console.log('Looking for build directory at:', buildPath);
 console.log('Directory exists:', fs.existsSync(buildPath));
@@ -23,16 +20,14 @@ if (fs.existsSync(buildPath)) {
     app.use(express.static(buildPath));
     console.log('Static files served from:', buildPath);
     
-    // List files in build directory
-    const files = fs.readdirSync(buildPath);
+        const files = fs.readdirSync(buildPath);
     console.log('Build directory contents:', files);
 } else {
     console.log('Build directory not found:', buildPath);
     console.log('Current working directory:', __dirname);
     console.log('Available directories:', fs.readdirSync(__dirname));
     
-    // Try alternative paths
-    const altPath1 = path.join(__dirname, 'build');
+        const altPath1 = path.join(__dirname, 'build');
     const altPath2 = path.join(process.cwd(), 'client/build');
     const altPath3 = path.join(process.cwd(), 'build');
     
@@ -40,8 +35,7 @@ if (fs.existsSync(buildPath)) {
     console.log('Trying alternative path 2:', altPath2, 'exists:', fs.existsSync(altPath2));
     console.log('Trying alternative path 3:', altPath3, 'exists:', fs.existsSync(altPath3));
     
-    // Use first available build directory
-    if (fs.existsSync(altPath1)) {
+        if (fs.existsSync(altPath1)) {
         app.use(express.static(altPath1));
         console.log('Using alternative path 1:', altPath1);
     } else if (fs.existsSync(altPath2)) {
@@ -53,7 +47,6 @@ if (fs.existsSync(buildPath)) {
     }
 }
 
-// Uploads qovluğunu yaratmaq - Render üçün /tmp istifadə et
 const uploadsDir = process.env.NODE_ENV === 'production' 
     ? path.join('/tmp', 'uploads') 
     : path.join(__dirname, 'uploads');
@@ -62,7 +55,6 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// PDF faylları üçün qovluq
 const pdfDir = process.env.NODE_ENV === 'production' 
     ? path.join('/tmp', 'pdfs') 
     : path.join(__dirname, 'uploads', 'pdfs');
@@ -71,7 +63,6 @@ if (!fs.existsSync(pdfDir)) {
     fs.mkdirSync(pdfDir, { recursive: true });
 }
 
-// Multer konfiqurasiyası - memory storage istifadə et
 const storage = multer.memoryStorage();
 
 const upload = multer({ 
@@ -91,15 +82,13 @@ const upload = multer({
     }
 });
 
-// Fayl yükləmə üçün multer konfiqurasiyası - disk storage (istənilən format)
 const pdfStorage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, pdfDir);
     },
     filename: function (req, file, cb) {
         const sinif = req.body.sinif || 'unknown';
-        // Orijinal fayl uzantısını saxla
-        const originalExt = path.extname(file.originalname);
+                const originalExt = path.extname(file.originalname);
         const fileName = `sinif_${sinif}${originalExt}`;
         cb(null, fileName);
     }
@@ -107,13 +96,10 @@ const pdfStorage = multer.diskStorage({
 
 const uploadPdf = multer({ 
     storage: pdfStorage,
-    // Format məhdudiyyəti yoxdur - istənilən format qəbul edilir
-    limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB limit
-    }
+        limits: {
+        fileSize: 50 * 1024 * 1024     }
 });
 
-// MongoDB connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://nahedshukurlu_db_user:EebPHBmTA12QOD03@exam-result.bjiyluu.mongodb.net/imtahan_db?retryWrites=true&w=majority';
 const DB_NAME = 'imtahan_db';
 let client;
@@ -122,7 +108,6 @@ let isConnecting = false;
 let connectionRetries = 0;
 const MAX_RETRIES = 5;
 
-// MongoDB-yə qoşulmaq
 const connectToMongoDB = async (retry = false) => {
     if (isConnecting && !retry) {
         console.log('MongoDB connection artıq davam edir...');
@@ -131,8 +116,7 @@ const connectToMongoDB = async (retry = false) => {
     
     if (db && client) {
         try {
-            // Connection-ın aktiv olub olmadığını yoxla
-            await client.db('admin').admin().ping();
+                        await client.db('admin').admin().ping();
             return;
         } catch (err) {
             console.log('MongoDB connection aktiv deyil, yenidən qoşulur...');
@@ -145,42 +129,33 @@ const connectToMongoDB = async (retry = false) => {
     
     try {
         const connectionOptions = {
-            serverSelectionTimeoutMS: 30000, // 30 saniyə
-            socketTimeoutMS: 45000, // 45 saniyə
-            connectTimeoutMS: 30000, // 30 saniyə
-            retryWrites: true,
+            serverSelectionTimeoutMS: 30000,             socketTimeoutMS: 45000,             connectTimeoutMS: 30000,             retryWrites: true,
             retryReads: true,
             maxPoolSize: 10,
             minPoolSize: 1,
             maxIdleTimeMS: 30000,
             heartbeatFrequencyMS: 10000,
-            // SSL/TLS konfiqurasiyası
-            tls: true,
+                        tls: true,
             tlsAllowInvalidCertificates: false,
             tlsAllowInvalidHostnames: false,
-            // Connection pool konfiqurasiyası
-            maxConnecting: 2
+                        maxConnecting: 2
         };
         
         client = new MongoClient(MONGODB_URI, connectionOptions);
         await client.connect();
         db = client.db(DB_NAME);
         
-        // Connection-ı test et
-        await db.admin().ping();
+                await db.admin().ping();
         
         console.log('MongoDB-yə uğurla qoşuldu');
         connectionRetries = 0;
         
-        // Index yarat (code və subject üçün unique)
-        try {
+                try {
             const resultsCollection = db.collection('imtahan_neticeleri');
             await resultsCollection.createIndex({ code: 1, subject: 1 }, { unique: true });
             console.log('MongoDB index-ləri yaradıldı');
         } catch (indexErr) {
-            // Index artıq varsa, xəta vermə
-            if (indexErr.code !== 85) { // 85 = IndexOptionsConflict
-                console.error('Index yaratma xətası:', indexErr);
+                        if (indexErr.code !== 85) {                 console.error('Index yaratma xətası:', indexErr);
             }
         }
         
@@ -191,8 +166,7 @@ const connectToMongoDB = async (retry = false) => {
         console.error(`MongoDB qoşulma xətası (cəhd ${connectionRetries}/${MAX_RETRIES}):`, err.message);
         
         if (connectionRetries < MAX_RETRIES) {
-            const retryDelay = Math.min(1000 * Math.pow(2, connectionRetries), 10000); // Exponential backoff
-            console.log(`${retryDelay}ms sonra yenidən cəhd ediləcək...`);
+            const retryDelay = Math.min(1000 * Math.pow(2, connectionRetries), 10000);             console.log(`${retryDelay}ms sonra yenidən cəhd ediləcək...`);
             setTimeout(() => {
                 connectToMongoDB(true).catch(console.error);
             }, retryDelay);
@@ -203,13 +177,10 @@ const connectToMongoDB = async (retry = false) => {
     }
 };
 
-// MongoDB-yə qoşul
 connectToMongoDB().catch((err) => {
     console.error('İlkin MongoDB connection uğursuz oldu:', err.message);
-    // Server işləməyə davam etsin, sonra yenidən cəhd edəcək
-});
+    });
 
-// Admin paneli - Excel fayl yükləmə
 app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
     console.log('Upload request received:', req.file);
     try {
@@ -217,8 +188,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
             await connectToMongoDB();
         }
         
-        // Connection-ı yoxla
-        try {
+                try {
             await client.db('admin').admin().ping();
         } catch (err) {
             console.log('MongoDB connection kəsildi, yenidən qoşulur...');
@@ -235,16 +205,14 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
         const worksheet = workbook.Sheets[sheetName];
         const data = xlsx.utils.sheet_to_json(worksheet);
         
-        // Boş sətirləri filter et
-        const filteredData = data.filter(row => {
+                const filteredData = data.filter(row => {
             const kod = row['Kod'] || row['kod'] || row['KOD'];
             return kod && kod.toString().trim() !== '';
         });
         
         console.log(`Ümumi sətir sayı: ${data.length}, Filter edilmiş sətir sayı: ${filteredData.length}`);
 
-        // Excel məlumatlarını veritabanına yazmaq
-        let successCount = 0;
+                let successCount = 0;
         let errorCount = 0;
         
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -253,8 +221,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
         for (let index = 0; index < filteredData.length; index++) {
             const row = filteredData[index];
             try {
-                // Excel sütunlarını oxu
-                const code = row['Kod'] || row['kod'] || row['KOD'] || row['Student Code'] || row['student_code'];
+                                const code = row['Kod'] || row['kod'] || row['KOD'] || row['Student Code'] || row['student_code'];
                 const name = row['Ad'] || row['ad'] || row['AD'] || row['Name'] || row['name'] || row['First Name'];
                 const surname = row['Soyad'] || row['soyad'] || row['SOYAD'] || row['Surname'] || row['surname'] || row['Last Name'];
                 const subject = row['Fənn'] || row['fenn'] || row['FENN'] || row['Subject'] || row['subject'] || row['Course'];
@@ -269,14 +236,11 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
                 const classValue = row['Sinif'] || row['sinif'] || row['SINIF'] || row['Class'] || row['class'] || '';
                 const subclass = row['Altqrup'] || row['altqrup'] || row['ALTQRUP'] || row['Subgroup'] || row['subgroup'] || '';
 
-                // Bütün Excel məlumatlarını saxla
-                const excelData = JSON.stringify(row);
+                                const excelData = JSON.stringify(row);
 
-                // Result-ı yalnız validation üçün yoxla, amma orijinal dəyəri saxla
-                let isValidResult = false;
+                                let isValidResult = false;
                 if (result !== undefined && result !== null && result !== '') {
-                    // Validation üçün parse et, amma orijinal dəyəri saxla
-                    const testValue = typeof result === 'string' ? parseFloat(result.trim()) : result;
+                                        const testValue = typeof result === 'string' ? parseFloat(result.trim()) : result;
                     isValidResult = !isNaN(testValue) && isFinite(testValue);
                 }
                 
@@ -288,8 +252,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
                         name: name.toString(),
                         surname: surname.toString(),
                         subject: subject.toString(),
-                        result: result, // Orijinal dəyəri saxla
-                        correctAnswer: correctAnswer !== undefined && correctAnswer !== null && correctAnswer !== '' ? correctAnswer : null,
+                        result: result,                         correctAnswer: correctAnswer !== undefined && correctAnswer !== null && correctAnswer !== '' ? correctAnswer : null,
                         wrongAnswer: wrongAnswer !== undefined && wrongAnswer !== null && wrongAnswer !== '' ? wrongAnswer : null,
                         openQuestion: openQuestion !== undefined && openQuestion !== null && openQuestion !== '' ? openQuestion : null,
                         successRate: successRate !== undefined && successRate !== null && successRate !== '' ? successRate : null,
@@ -302,8 +265,7 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
                         uploadDate: new Date()
                     };
                     
-                    // Upsert: əgər varsa yenilə, yoxdursa yarat
-                    await resultsCollection.updateOne(
+                                        await resultsCollection.updateOne(
                         { code: code.toString(), subject: subject.toString() },
                         { $set: document },
                         { upsert: true }
@@ -348,7 +310,6 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
     }
 });
 
-// Tələbə nəticə yoxlama
 app.get('/api/check-result/:kod', async (req, res) => {
     const kod = req.params.kod;
 
@@ -357,8 +318,7 @@ app.get('/api/check-result/:kod', async (req, res) => {
             await connectToMongoDB();
         }
         
-        // Connection-ı yoxla
-        try {
+                try {
             await client.db('admin').admin().ping();
         } catch (err) {
             console.log('MongoDB connection kəsildi, yenidən qoşulur...');
@@ -369,8 +329,7 @@ app.get('/api/check-result/:kod', async (req, res) => {
         const rows = await resultsCollection.find({ code: kod }).sort({ subject: 1 }).toArray();
 
         if (rows && rows.length > 0) {
-            // Tələbə məlumatlarını ilk sətirdən götür
-            const studentInfo = {
+                        const studentInfo = {
                 code: rows[0].code,
                 name: rows[0].name,
                 surname: rows[0].surname,
@@ -381,8 +340,7 @@ app.get('/api/check-result/:kod', async (req, res) => {
                 uploadDate: rows[0].uploadDate
             };
 
-            // Bütün fənləri və əlavə məlumatları topla - olduğu kimi qaytar
-            const subjects = rows.map(row => {
+                        const subjects = rows.map(row => {
                 return {
                     subject: row.subject || '',
                     result: row.result !== undefined && row.result !== null ? row.result : null,
@@ -393,21 +351,18 @@ app.get('/api/check-result/:kod', async (req, res) => {
                 };
             });
 
-            // Ümumi bal hesabla (bütün fənlərin cəmi) - yalnız hesablama üçün parse et
-            const totalResult = subjects.reduce((sum, subj) => {
+                        const totalResult = subjects.reduce((sum, subj) => {
                 if (subj.result === undefined || subj.result === null) return sum;
                 const value = typeof subj.result === 'number' ? subj.result : (parseFloat(subj.result) || 0);
                 return sum + value;
             }, 0);
 
-            // Excel-dən gələn bütün əlavə məlumatları topla
-            const allExcelData = {};
+                        const allExcelData = {};
             rows.forEach(row => {
                 if (row.excelData) {
                     try {
                         const excelRow = JSON.parse(row.excelData);
-                        // Hər sətirdəki bütün sütunları topla
-                        Object.keys(excelRow).forEach(key => {
+                                                Object.keys(excelRow).forEach(key => {
                             if (!allExcelData[key]) {
                                 allExcelData[key] = [];
                             }
@@ -423,8 +378,7 @@ app.get('/api/check-result/:kod', async (req, res) => {
                 success: true,
                 data: {
                     ...studentInfo,
-                    subjects: subjects || [], // Həmişə array olsun
-                    totalResult: totalResult || 0,
+                    subjects: subjects || [],                     totalResult: totalResult || 0,
                     subjectCount: rows.length || 0,
                     excelData: allExcelData || {}
                 }
@@ -441,7 +395,6 @@ app.get('/api/check-result/:kod', async (req, res) => {
     }
 });
 
-// Nümunə Excel faylını yükləmək
 app.get('/api/download-sample-excel', (req, res) => {
     const sampleFilePath = path.join(__dirname, 'yeni_imtahan.xlsx');
     
@@ -475,15 +428,13 @@ app.get('/api/download-sample-excel', (req, res) => {
     });
 });
 
-// Bütün nəticələri göstərmək (admin üçün)
 app.get('/api/all-results', async (req, res) => {
     try {
         if (!db || !client) {
             await connectToMongoDB();
         }
         
-        // Connection-ı yoxla
-        try {
+                try {
             await client.db('admin').admin().ping();
         } catch (err) {
             console.log('MongoDB connection kəsildi, yenidən qoşulur...');
@@ -499,7 +450,6 @@ app.get('/api/all-results', async (req, res) => {
     }
 });
 
-// Fayl yükləmə (admin üçün - istənilən format)
 app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
     console.log('File upload request received');
     console.log('Request body:', req.body);
@@ -515,28 +465,23 @@ app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
         const sinif = parseInt(req.body.sinif);
         console.log('Parsed sinif:', sinif);
         if (!sinif || sinif < 1 || sinif > 11) {
-            // Əgər fayl yüklənibsə, onu sil
-            if (req.file && fs.existsSync(req.file.path)) {
+                        if (req.file && fs.existsSync(req.file.path)) {
                 fs.unlinkSync(req.file.path);
             }
             return res.status(400).json({ error: 'Düzgün sinif nömrəsi daxil edin (1-11)!' });
         }
 
-        // Orijinal fayl uzantısını istifadə et
-        const originalExt = path.extname(req.file.originalname);
+                const originalExt = path.extname(req.file.originalname);
         const fileName = `sinif_${sinif}${originalExt}`;
         const filePath = path.join(pdfDir, fileName);
 
-        // Əgər köhnə fayl varsa, onu sil
-        if (fs.existsSync(filePath)) {
+                if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
         }
 
-        // Yeni faylı köçür
-        fs.renameSync(req.file.path, filePath);
+                fs.renameSync(req.file.path, filePath);
 
-        // Veritabanına yaz
-        const pdfCollection = db.collection('sinif_pdf');
+                const pdfCollection = db.collection('sinif_pdf');
         await pdfCollection.updateOne(
             { sinif: sinif },
             { 
@@ -559,8 +504,7 @@ app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
 
     } catch (error) {
         console.error('PDF fayl yükləmə xətası:', error);
-        // Əgər fayl yüklənibsə, onu sil
-        if (req.file && fs.existsSync(req.file.path)) {
+                if (req.file && fs.existsSync(req.file.path)) {
             try {
                 fs.unlinkSync(req.file.path);
             } catch (unlinkErr) {
@@ -571,7 +515,6 @@ app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
     }
 });
 
-// Fayl yükləmə (download üçün - istənilən format)
 app.get('/api/download-pdf/:sinif', async (req, res) => {
     const sinif = parseInt(req.params.sinif);
     
@@ -601,7 +544,6 @@ app.get('/api/download-pdf/:sinif', async (req, res) => {
     }
 });
 
-// Fayl görüntüləmə (online - istənilən format)
 app.get('/api/view-pdf/:sinif', async (req, res) => {
     const sinif = parseInt(req.params.sinif);
     
@@ -617,12 +559,10 @@ app.get('/api/view-pdf/:sinif', async (req, res) => {
             return res.status(404).json({ error: `${sinif}-ci sinif üçün fayl tapılmadı!` });
         }
 
-        // Fayl ölçüsünü al
-        const stats = fs.statSync(pdfRecord.fayl_yolu);
+                const stats = fs.statSync(pdfRecord.fayl_yolu);
         const fileSize = stats.size;
 
-        // Fayl uzantısına görə Content-Type təyin et
-        const ext = path.extname(pdfRecord.fayl_adi).toLowerCase();
+                const ext = path.extname(pdfRecord.fayl_adi).toLowerCase();
         const mimeTypes = {
             '.pdf': 'application/pdf',
             '.doc': 'application/msword',
@@ -637,15 +577,13 @@ app.get('/api/view-pdf/:sinif', async (req, res) => {
         };
         const contentType = mimeTypes[ext] || 'application/octet-stream';
 
-        // Headers təyin et
-        res.setHeader('Content-Type', contentType);
+                res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `inline; filename="${pdfRecord.fayl_adi}"`);
         res.setHeader('Content-Length', fileSize);
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Cache-Control', 'public, max-age=3600');
 
-        // File stream yarat və pipe et
-        const fileStream = fs.createReadStream(pdfRecord.fayl_yolu);
+                const fileStream = fs.createReadStream(pdfRecord.fayl_yolu);
         
         fileStream.on('error', (err) => {
             console.error('PDF file stream error:', err);
@@ -665,7 +603,6 @@ app.get('/api/view-pdf/:sinif', async (req, res) => {
     }
 });
 
-// Bütün mövcud PDF fayllarını göstərmək
 app.get('/api/list-pdfs', async (req, res) => {
     try {
         const pdfCollection = db.collection('sinif_pdf');
@@ -677,10 +614,8 @@ app.get('/api/list-pdfs', async (req, res) => {
     }
 });
 
-// React app üçün - bütün route-ları React-ə yönləndir
 app.get('*', (req, res) => {
-    // Try multiple possible paths for index.html
-    const possiblePaths = [
+        const possiblePaths = [
         path.join(__dirname, 'client/build', 'index.html'),
         path.join(__dirname, 'build', 'index.html'),
         path.join(process.cwd(), 'client/build', 'index.html'),
@@ -724,8 +659,7 @@ app.listen(PORT, async () => {
     console.log(`Admin paneli: http://localhost:${PORT}/admin`);
     console.log(`Tələbə paneli: http://localhost:${PORT}/`);
     
-    // MongoDB-yə qoşul
-    if (!db || !client) {
+        if (!db || !client) {
         try {
             await connectToMongoDB();
         } catch (err) {
@@ -735,7 +669,6 @@ app.listen(PORT, async () => {
     }
 });
 
-// Server bağlananda MongoDB connection-ı bağla
 process.on('SIGINT', async () => {
     if (client) {
         await client.close();

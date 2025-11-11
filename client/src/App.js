@@ -16,11 +16,9 @@ function Navbar() {
   const isAdminPage = location.pathname === "/secure-admin-panel-2024";
 
   const scrollToSection = (sectionId) => {
-    // Əgər nəticələr bölməsinə scroll ediriksə və admin səhifəsindəyiksə, əvvəl ana səhifəyə keç
-    if (sectionId === "netice-bolmesi" && location.pathname !== "/") {
+        if (sectionId === "netice-bolmesi" && location.pathname !== "/") {
       navigate("/");
-      // Navigasiyadan sonra scroll etmək üçün qısa bir gecikmə
-      setTimeout(() => {
+            setTimeout(() => {
         const element = document.getElementById(sectionId);
         if (element) {
           element.scrollIntoView({ behavior: "smooth", block: "start" });

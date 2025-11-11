@@ -26,8 +26,7 @@ const StudentPanel = () => {
       const response = await axios.get(`/api/check-result/${kod.trim()}`);
       
       if (response.data.success && response.data.data) {
-        // API-dən gələn data-nı yoxla və subjects array-ini təmin et
-        const data = response.data.data;
+                const data = response.data.data;
         if (!data.subjects || !Array.isArray(data.subjects)) {
           console.error('API-dən gələn data-da subjects array yoxdur:', data);
           setError('Nəticə məlumatları düzgün formatda deyil!');
@@ -58,13 +57,11 @@ const StudentPanel = () => {
     setSelectedClass(sinif);
     
     if (sinif) {
-      // PDF-in mövcud olub olmadığını yoxla
-      setCheckingPdf(true);
+            setCheckingPdf(true);
       try {
         const response = await axios.get(`/api/view-pdf/${sinif}`, {
           responseType: 'blob',
-          validateStatus: (status) => status < 500 // 404-ü də qəbul et
-        });
+          validateStatus: (status) => status < 500         });
         setPdfAvailable(response.status === 200);
       } catch (err) {
         setPdfAvailable(false);
@@ -84,14 +81,12 @@ const StudentPanel = () => {
         responseType: 'blob'
       });
       
-      // Content-Type-u response header-dan al
-      const contentType = response.headers['content-type'] || 'application/octet-stream';
+            const contentType = response.headers['content-type'] || 'application/octet-stream';
       const blob = new Blob([response.data], { type: contentType });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      // Content-Disposition header-dan fayl adını al, yoxsa default istifadə et
-      const contentDisposition = response.headers['content-disposition'];
+            const contentDisposition = response.headers['content-disposition'];
       let filename = `${selectedClass}-ci_sinif_movzulari`;
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
@@ -113,18 +108,16 @@ const StudentPanel = () => {
 
   const handleViewPdf = () => {
     if (!selectedClass) return;
-    // Faylı yeni pəncərədə aç
-    const fileUrl = `/api/view-pdf/${selectedClass}`;
+        const fileUrl = `/api/view-pdf/${selectedClass}`;
     window.open(fileUrl, '_blank');
   };
 
-  // Sinif seçimləri
-  const classes = Array.from({ length: 11 }, (_, i) => i + 1);
+    const classes = Array.from({ length: 11 }, (_, i) => i + 1);
 
   return (
     <div className="max-w-2xl mx-auto">
       <div className="bg-white shadow-lg rounded-lg p-8">
-        {/* Tab Navigation */}
+        {}
         <div className="mb-8 border-b border-gray-200">
           <nav className="flex space-x-8" aria-label="Tabs">
             <button
@@ -150,7 +143,7 @@ const StudentPanel = () => {
           </nav>
         </div>
 
-        {/* Results Tab Content */}
+        {}
         {activeTab === 'results' && (
           <>
             <div className="text-center mb-8">
@@ -224,13 +217,13 @@ const StudentPanel = () => {
 
             {result && (
               <div className="mt-6 bg-white rounded-lg shadow-lg overflow-hidden">
-                {/* Ümumi bal başlığı */}
+                {}
                 <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-center py-8">
                   <div className="text-6xl font-bold mb-2">{result.totalResult || 0}</div>
                   <div className="text-xl">Ümumi bal</div>
                 </div>
 
-                {/* Tələbə məlumatları */}
+                {}
                 <div className="p-6">
                   <div className="text-center mb-6">
                     <h2 className="text-2xl font-bold text-gray-800 mb-4">Sınaq 2</h2>
@@ -271,7 +264,7 @@ const StudentPanel = () => {
                     </div>
                   </div>
 
-                  {/* Fənnlər cədvəli */}
+                  {}
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -325,7 +318,7 @@ const StudentPanel = () => {
                             </td>
                           </tr>
                         )}
-                        {/* Ümumi sətir */}
+                        {}
                         {result && result.subjects && Array.isArray(result.subjects) && result.subjects.length > 0 && (
                           <tr className="border-t-2 border-gray-800 font-bold bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">Ümumi</td>
@@ -345,7 +338,7 @@ const StudentPanel = () => {
           </>
         )}
 
-        {/* Topics Tab Content */}
+        {}
         {activeTab === 'topics' && (
           <>
             <div className="text-center mb-8">

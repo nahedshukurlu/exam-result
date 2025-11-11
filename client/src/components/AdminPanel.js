@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-// Admin credentials
 const ADMIN_EMAIL = 'imtahan@bilim.edu.az';
 const ADMIN_PASSWORD = 'Bilim@2024#Secure!Admin';
 
@@ -20,16 +19,14 @@ const AdminPanel = () => {
   const [allResults, setAllResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
   
-  // PDF upload state
-  const [pdfFile, setPdfFile] = useState(null);
+    const [pdfFile, setPdfFile] = useState(null);
   const [selectedSinif, setSelectedSinif] = useState('');
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [pdfUploadResult, setPdfUploadResult] = useState(null);
   const [pdfError, setPdfError] = useState('');
   const [uploadedPdfs, setUploadedPdfs] = useState([]);
 
-  // Check authentication on mount
-  useEffect(() => {
+    useEffect(() => {
     const authStatus = sessionStorage.getItem('adminAuthenticated');
     if (authStatus === 'true') {
       setIsAuthenticated(true);
@@ -60,8 +57,7 @@ const AdminPanel = () => {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      // Excel fayl formatını yoxlamaq
-      const validTypes = [
+            const validTypes = [
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.ms-excel'
       ];
@@ -100,8 +96,7 @@ const AdminPanel = () => {
 
       setUploadResult(response.data);
       setFile(null);
-      // File input-u təmizləmək
-      document.getElementById('excelFile').value = '';
+            document.getElementById('excelFile').value = '';
     } catch (err) {
       if (err.response && err.response.data && err.response.data.error) {
         setError(err.response.data.error);
@@ -150,8 +145,7 @@ const AdminPanel = () => {
     }
   };
 
-  // Fayl yükləmə funksiyaları (istənilən format)
-  const handlePdfFileChange = (e) => {
+    const handlePdfFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setPdfFile(selectedFile);
@@ -190,18 +184,15 @@ const AdminPanel = () => {
     } catch (err) {
       console.error('PDF upload xətası:', err);
       if (err.response) {
-        // Server cavab verdi, amma xəta var
-        if (err.response.data && err.response.data.error) {
+                if (err.response.data && err.response.data.error) {
           setPdfError(err.response.data.error);
         } else {
           setPdfError(`Server xətası: ${err.response.status} ${err.response.statusText}`);
         }
       } else if (err.request) {
-        // Request göndərildi, amma cavab alınmadı
-        setPdfError('Serverə bağlantı qurula bilmədi. Zəhmət olmasa serverin işlədiyini yoxlayın.');
+                setPdfError('Serverə bağlantı qurula bilmədi. Zəhmət olmasa serverin işlədiyini yoxlayın.');
       } else {
-        // Request göndərilmədi
-        setPdfError('Fayl yüklənərkən xəta baş verdi!');
+                setPdfError('Fayl yüklənərkən xəta baş verdi!');
       }
     } finally {
       setUploadingPdf(false);
@@ -222,15 +213,13 @@ const AdminPanel = () => {
     }
   };
 
-  // Component mount olduqda PDF siyahısını yüklə
-  useEffect(() => {
+    useEffect(() => {
     fetchUploadedPdfs();
   }, []);
 
   const classes = Array.from({ length: 11 }, (_, i) => i + 1);
 
-  // Login form
-  if (!isAuthenticated) {
+    if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
@@ -303,7 +292,7 @@ const AdminPanel = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      {/* Logout button */}
+      {}
       <div className="flex justify-end">
         <button
           onClick={handleLogout}
@@ -312,7 +301,7 @@ const AdminPanel = () => {
           Çıxış
         </button>
       </div>
-      {/* PDF Yükləmə Bölməsi */}
+      {}
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-gray-800 mb-2">
@@ -426,7 +415,7 @@ const AdminPanel = () => {
           </div>
         )}
 
-        {/* Yüklənmiş faylların siyahısı */}
+        {}
         {uploadedPdfs && uploadedPdfs.length > 0 && (
           <div className="mt-8">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Yüklənmiş Fayllar</h3>
@@ -451,7 +440,7 @@ const AdminPanel = () => {
         )}
       </div>
 
-      {/* Excel Fayl Yükləmə Bölməsi */}
+      {}
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-gray-800 mb-2">
@@ -561,7 +550,7 @@ const AdminPanel = () => {
         )}
       </div>
 
-      {/* Bütün Nəticələri Göstərmə Bölməsi */}
+      {}
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-bold text-gray-800">
