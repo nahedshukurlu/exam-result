@@ -604,28 +604,28 @@ const AdminPanel = () => {
                 {allResults.map((result) => (
                   <tr key={result.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {result.kod}
+                      {result.code}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {result.ad}
+                      {result.name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {result.soyad}
+                      {result.surname}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {result.fenn}
+                      {result.subject}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        result.bal >= 50 
+                        result.result >= 50 
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-red-100 text-red-800'
                       }`}>
-                        {result.bal}
+                        {result.result}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(result.yuklenme_tarixi).toLocaleDateString('az-AZ')}
+                      {new Date(result.uploadDate).toLocaleDateString('az-AZ')}
                     </td>
                   </tr>
                 ))}

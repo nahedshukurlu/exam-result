@@ -217,7 +217,7 @@ const StudentPanel = () => {
               <div className="mt-6 bg-white rounded-lg shadow-lg overflow-hidden">
                 {/* Ümumi bal başlığı */}
                 <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-center py-8">
-                  <div className="text-6xl font-bold mb-2">{result.umumiBal}</div>
+                  <div className="text-6xl font-bold mb-2">{result.totalResult || 0}</div>
                   <div className="text-xl">Ümumi bal</div>
                 </div>
 
@@ -229,11 +229,11 @@ const StudentPanel = () => {
                     <div className="grid grid-cols-2 gap-4 text-left max-w-md mx-auto">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Ad və soyad:</span>
-                        <span className="font-medium">{result.ad} {result.soyad}</span>
+                        <span className="font-medium">{result.name || '-'} {result.surname || '-'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">İş nömrəsi:</span>
-                        <span className="font-medium">{result.kod}</span>
+                        <span className="font-medium">{result.code || '-'}</span>
                       </div>
                       {result.variant && (
                         <div className="flex justify-between">
@@ -241,22 +241,22 @@ const StudentPanel = () => {
                           <span className="font-medium">{result.variant}</span>
                         </div>
                       )}
-                      {result.bolme && (
+                      {result.section && (
                         <div className="flex justify-between">
                           <span className="text-gray-600">Bölmə:</span>
-                          <span className="font-medium">{result.bolme}</span>
+                          <span className="font-medium">{result.section}</span>
                         </div>
                       )}
-                      {result.sinif && (
+                      {result.class && (
                         <div className="flex justify-between">
                           <span className="text-gray-600">Sinif:</span>
-                          <span className="font-medium">{result.sinif}</span>
+                          <span className="font-medium">{result.class}</span>
                         </div>
                       )}
-                      {result.altqrup && (
+                      {result.subclass && (
                         <div className="flex justify-between">
                           <span className="text-gray-600">Altqrup:</span>
-                          <span className="font-medium">{result.altqrup}</span>
+                          <span className="font-medium">{result.subclass}</span>
                         </div>
                       )}
                     </div>
@@ -271,85 +271,65 @@ const StudentPanel = () => {
                             Fənn
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Doğru cavab
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Səhv
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Açıq sual (balı)
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Uğur faizi
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Bal
+                            Yekun bal
                           </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {result.fennler.map((fenn, index) => (
+                        {result.subjects && result.subjects.length > 0 ? result.subjects.map((subject, index) => (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {fenn.fenn}
+                              {subject.subject}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                              {fenn.bal.toFixed(2)}
+                              {subject.correctAnswer !== undefined && subject.correctAnswer !== null ? subject.correctAnswer : '-'}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                              {fenn.bal}
+                              {subject.wrongAnswer !== undefined && subject.wrongAnswer !== null ? subject.wrongAnswer : '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {subject.openQuestion !== undefined && subject.openQuestion !== null ? subject.openQuestion : '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {subject.successRate !== undefined && subject.successRate !== null ? subject.successRate : '-'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {subject.result !== undefined && subject.result !== null ? subject.result : '-'}
                             </td>
                           </tr>
-                        ))}
+                        )) : (
+                          <tr>
+                            <td colSpan="6" className="px-6 py-4 text-center text-sm text-gray-500">
+                              Nəticə tapılmadı
+                            </td>
+                          </tr>
+                        )}
                         {/* Ümumi sətir */}
-                        <tr className="border-t-2 border-gray-800 font-bold bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">Ümumi</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                            {(result.umumiBal / result.fennSayi).toFixed(2)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{result.umumiBal}</td>
-                        </tr>
+                        {result.subjects && result.subjects.length > 0 && (
+                          <tr className="border-t-2 border-gray-800 font-bold bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">Ümumi</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900"></td>
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900"></td>
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900"></td>
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900"></td>
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{result.totalResult || 0}</td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
-
-                  {/* Əlavə Excel məlumatları */}
-                  {result.excelData && Object.keys(result.excelData).length > 0 && (
-                    <div className="mt-8">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-4">Əlavə Məlumatlar</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {Object.entries(result.excelData).map(([key, values]) => {
-                          // Standart sütunları göstərmə (artıq yuxarıda göstərilir)
-                          const standardColumns = ['Kod', 'kod', 'KOD', 'Ad', 'ad', 'AD', 'Soyad', 'soyad', 'SOYAD', 
-                            'Fənn', 'fenn', 'FENN', 'Bal', 'bal', 'BAL', 'Variant', 'variant', 'VARIANT', 
-                            'Bölmə', 'bölmə', 'BOLME', 'Sinif', 'sinif', 'SINIF', 'Altqrup', 'altqrup', 'ALTQRUP',
-                            'Student Code', 'student_code', 'Name', 'name', 'First Name', 'Surname', 'surname', 
-                            'Last Name', 'Subject', 'subject', 'Course', 'Score', 'score', 'Grade', 'grade', 
-                            'Section', 'section', 'Class', 'class', 'Subgroup', 'subgroup'];
-                          
-                          if (standardColumns.includes(key)) {
-                            return null;
-                          }
-
-                          // Unikal dəyərləri göstər
-                          const uniqueValues = [...new Set(values.filter(v => v !== null && v !== undefined && v !== ''))];
-                          if (uniqueValues.length === 0) {
-                            return null;
-                          }
-
-                          return (
-                            <div key={key} className="bg-gray-50 rounded-lg p-4">
-                              <h4 className="font-medium text-gray-700 mb-2 capitalize">
-                                {key.replace(/([A-Z])/g, ' $1').trim()}
-                              </h4>
-                              <div className="text-sm text-gray-600">
-                                {uniqueValues.length === 1 ? (
-                                  <span className="font-medium">{uniqueValues[0]}</span>
-                                ) : (
-                                  <ul className="list-disc list-inside space-y-1">
-                                    {uniqueValues.map((value, index) => (
-                                      <li key={index}>{value}</li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             )}

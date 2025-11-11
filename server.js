@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const xlsx = require('xlsx');
-const Database = require('better-sqlite3');
+const { MongoClient } = require('mongodb');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -113,57 +113,41 @@ const uploadPdf = multer({
     }
 });
 
-// SQLite veritabanı
-const dbPath = process.env.DATABASE_URL || path.join(__dirname, 'imtahan.db');
-// Veritabanı directory-sini yarat (Render.com üçün)
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
-    console.log('Database directory created:', dbDir);
-}
-const db = new Database(dbPath);
+// MongoDB connection
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://nahedshukurlu_db_user:EebPHBmTA12QOD03@exam-result.bjiyluu.mongodb.net/';
+const DB_NAME = 'imtahan_db';
+let client;
+let db;
 
-// Veritabanı cədvəlini yaratmaq
-const createTable = () => {
+// MongoDB-yə qoşulmaq
+const connectToMongoDB = async () => {
     try {
-        db.exec(`CREATE TABLE IF NOT EXISTS imtahan_neticeleri (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kod TEXT NOT NULL,
-            ad TEXT NOT NULL,
-            soyad TEXT NOT NULL,
-            fenn TEXT NOT NULL,
-            bal INTEGER NOT NULL,
-            variant TEXT,
-            bolme TEXT,
-            sinif TEXT,
-            altqrup TEXT,
-            fayl_adi TEXT NOT NULL,
-            yuklenme_tarixi DATETIME DEFAULT CURRENT_TIMESTAMP,
-            excel_data TEXT,
-            UNIQUE(kod, fenn)
-        )`);
+        client = new MongoClient(MONGODB_URI);
+        await client.connect();
+        db = client.db(DB_NAME);
+        console.log('MongoDB-yə uğurla qoşuldu');
         
-        // PDF faylları üçün cədvəl
-        db.exec(`CREATE TABLE IF NOT EXISTS sinif_pdf (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sinif INTEGER NOT NULL UNIQUE,
-            fayl_adi TEXT NOT NULL,
-            fayl_yolu TEXT NOT NULL,
-            yuklenme_tarixi DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
-        
-        console.log('SQLite cədvəlləri yaradıldı');
+        // Index yarat (code və subject üçün unique)
+        const resultsCollection = db.collection('imtahan_neticeleri');
+        await resultsCollection.createIndex({ code: 1, subject: 1 }, { unique: true });
+        console.log('MongoDB index-ləri yaradıldı');
     } catch (err) {
-        console.error('Veritabanı xətası:', err);
+        console.error('MongoDB qoşulma xətası:', err);
+        throw err;
     }
 };
 
-createTable();
+// MongoDB-yə qoşul
+connectToMongoDB().catch(console.error);
 
 // Admin paneli - Excel fayl yükləmə
 app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
     console.log('Upload request received:', req.file);
     try {
+        if (!db) {
+            await connectToMongoDB();
+        }
+        
         if (!req.file) {
             console.log('No file received');
             return res.status(400).json({ error: 'Excel faylı seçilməyib!' });
@@ -173,6 +157,14 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const data = xlsx.utils.sheet_to_json(worksheet);
+        
+        // Boş sətirləri filter et
+        const filteredData = data.filter(row => {
+            const kod = row['Kod'] || row['kod'] || row['KOD'];
+            return kod && kod.toString().trim() !== '';
+        });
+        
+        console.log(`Ümumi sətir sayı: ${data.length}, Filter edilmiş sətir sayı: ${filteredData.length}`);
 
         // Excel məlumatlarını veritabanına yazmaq
         let successCount = 0;
@@ -181,55 +173,82 @@ app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const fileName = 'imtahan-' + uniqueSuffix + '.xlsx';
 
-        for (let index = 0; index < data.length; index++) {
-            const row = data[index];
+        for (let index = 0; index < filteredData.length; index++) {
+            const row = filteredData[index];
             try {
-                const kod = row['Kod'] || row['kod'] || row['KOD'] || row['Student Code'] || row['student_code'];
-                const ad = row['Ad'] || row['ad'] || row['AD'] || row['Name'] || row['name'] || row['First Name'];
-                const soyad = row['Soyad'] || row['soyad'] || row['SOYAD'] || row['Surname'] || row['surname'] || row['Last Name'];
-                const fenn = row['Fənn'] || row['fenn'] || row['FENN'] || row['Subject'] || row['subject'] || row['Course'];
-                const bal = row['Bal'] || row['bal'] || row['BAL'] || row['Score'] || row['score'] || row['Grade'] || row['grade'];
+                // Excel sütunlarını oxu
+                const code = row['Kod'] || row['kod'] || row['KOD'] || row['Student Code'] || row['student_code'];
+                const name = row['Ad'] || row['ad'] || row['AD'] || row['Name'] || row['name'] || row['First Name'];
+                const surname = row['Soyad'] || row['soyad'] || row['SOYAD'] || row['Surname'] || row['surname'] || row['Last Name'];
+                const subject = row['Fənn'] || row['fenn'] || row['FENN'] || row['Subject'] || row['subject'] || row['Course'];
+                const result = row['Yekun bal'] || row['Yekun Bal'] || row['yekun bal'] || row['YEKUN BAL'] || 
+                              row['Bal'] || row['bal'] || row['BAL'] || row['Score'] || row['score'] || row['Grade'] || row['grade'];
+                const correctAnswer = row['Doğru cavab'] || row['Doğru Cavab'] || row['doğru cavab'] || null;
+                const wrongAnswer = row['Səhv'] || row['səhv'] || row['SEHV'] || null;
+                const openQuestion = row['Açıq sual (balı)'] || row['Açıq Sual (balı)'] || row['açıq sual (balı)'] || null;
+                const successRate = row['Uğur faizi'] || row['Uğur Faizi'] || row['uğur faizi'] || null;
                 const variant = row['Variant'] || row['variant'] || row['VARIANT'] || '';
-                const bolme = row['Bölmə'] || row['bölmə'] || row['BOLME'] || row['Section'] || row['section'] || '';
-                const sinif = row['Sinif'] || row['sinif'] || row['SINIF'] || row['Class'] || row['class'] || '';
-                const altqrup = row['Altqrup'] || row['altqrup'] || row['ALTQRUP'] || row['Subgroup'] || row['subgroup'] || '';
+                const section = row['Bölmə'] || row['bölmə'] || row['BOLME'] || row['Section'] || row['section'] || '';
+                const classValue = row['Sinif'] || row['sinif'] || row['SINIF'] || row['Class'] || row['class'] || '';
+                const subclass = row['Altqrup'] || row['altqrup'] || row['ALTQRUP'] || row['Subgroup'] || row['subgroup'] || '';
 
+                // Bütün Excel məlumatlarını saxla
                 const excelData = JSON.stringify(row);
 
-                if (kod && ad && soyad && fenn && bal !== undefined) {
-                    const insert = db.prepare(`
-                        INSERT INTO imtahan_neticeleri 
-                        (kod, ad, soyad, fenn, bal, variant, bolme, sinif, altqrup, fayl_adi, excel_data) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(kod, fenn) DO UPDATE SET
-                        ad = excluded.ad,
-                        soyad = excluded.soyad,
-                        bal = excluded.bal,
-                        variant = excluded.variant,
-                        bolme = excluded.bolme,
-                        sinif = excluded.sinif,
-                        altqrup = excluded.altqrup,
-                        fayl_adi = excluded.fayl_adi,
-                        excel_data = excluded.excel_data,
-                        yuklenme_tarixi = CURRENT_TIMESTAMP
-                    `);
+                // Result-ı yalnız validation üçün yoxla, amma orijinal dəyəri saxla
+                let isValidResult = false;
+                if (result !== undefined && result !== null && result !== '') {
+                    // Validation üçün parse et, amma orijinal dəyəri saxla
+                    const testValue = typeof result === 'string' ? parseFloat(result.trim()) : result;
+                    isValidResult = !isNaN(testValue) && isFinite(testValue);
+                }
+                
+                if (code && name && surname && subject && isValidResult) {
+                    const resultsCollection = db.collection('imtahan_neticeleri');
                     
-                    insert.run(
-                        kod.toString(), 
-                        ad.toString(), 
-                        soyad.toString(), 
-                        fenn.toString(), 
-                        parseInt(bal),
-                        variant.toString(),
-                        bolme.toString(),
-                        sinif.toString(),
-                        altqrup.toString(),
-                        fileName,
-                        excelData
+                    const document = {
+                        code: code.toString(),
+                        name: name.toString(),
+                        surname: surname.toString(),
+                        subject: subject.toString(),
+                        result: result, // Orijinal dəyəri saxla
+                        correctAnswer: correctAnswer !== undefined && correctAnswer !== null && correctAnswer !== '' ? correctAnswer : null,
+                        wrongAnswer: wrongAnswer !== undefined && wrongAnswer !== null && wrongAnswer !== '' ? wrongAnswer : null,
+                        openQuestion: openQuestion !== undefined && openQuestion !== null && openQuestion !== '' ? openQuestion : null,
+                        successRate: successRate !== undefined && successRate !== null && successRate !== '' ? successRate : null,
+                        variant: variant.toString(),
+                        section: section.toString(),
+                        class: classValue.toString(),
+                        subclass: subclass.toString(),
+                        fileName: fileName,
+                        excelData: excelData,
+                        uploadDate: new Date()
+                    };
+                    
+                    // Upsert: əgər varsa yenilə, yoxdursa yarat
+                    await resultsCollection.updateOne(
+                        { code: code.toString(), subject: subject.toString() },
+                        { $set: document },
+                        { upsert: true }
                     );
                     successCount++;
                 } else {
-                    console.log(`Sətir ${index + 1}: Məlumatlar tam deyil`, row);
+                    const missingFields = [];
+                    if (!code) missingFields.push('Kod');
+                    if (!name) missingFields.push('Ad');
+                    if (!surname) missingFields.push('Soyad');
+                    if (!subject) missingFields.push('Fənn');
+                    if (parsedResult === null || parsedResult === undefined || isNaN(parsedResult) || !isFinite(parsedResult)) missingFields.push('Yekun bal');
+                    
+                    console.log(`Sətir ${index + 1}: Məlumatlar tam deyil. Çatışmayan sütunlar: ${missingFields.join(', ')}`);
+                    console.log(`Sətir ${index + 1} məlumatları:`, {
+                        code: code || 'YOX',
+                        name: name || 'YOX',
+                        surname: surname || 'YOX',
+                        subject: subject || 'YOX',
+                        result: result || 'YOX',
+                        parsedResult: parsedResult
+                    });
                     errorCount++;
                 }
             } catch (err) {
@@ -257,37 +276,50 @@ app.get('/api/check-result/:kod', async (req, res) => {
     const kod = req.params.kod;
 
     try {
-        const stmt = db.prepare('SELECT * FROM imtahan_neticeleri WHERE kod = ? ORDER BY fenn');
-        const rows = stmt.all(kod);
+        if (!db) {
+            await connectToMongoDB();
+        }
+        
+        const resultsCollection = db.collection('imtahan_neticeleri');
+        const rows = await resultsCollection.find({ code: kod }).sort({ subject: 1 }).toArray();
 
         if (rows && rows.length > 0) {
             // Tələbə məlumatlarını ilk sətirdən götür
             const studentInfo = {
-                kod: rows[0].kod,
-                ad: rows[0].ad,
-                soyad: rows[0].soyad,
+                code: rows[0].code,
+                name: rows[0].name,
+                surname: rows[0].surname,
                 variant: rows[0].variant || '',
-                bolme: rows[0].bolme || '',
-                sinif: rows[0].sinif || '',
-                altqrup: rows[0].altqrup || '',
-                yuklenme_tarixi: rows[0].yuklenme_tarixi
+                section: rows[0].section || '',
+                class: rows[0].class || '',
+                subclass: rows[0].subclass || '',
+                uploadDate: rows[0].uploadDate
             };
 
-            // Bütün fənləri və balları topla
-            const fennler = rows.map(row => ({
-                fenn: row.fenn,
-                bal: row.bal
-            }));
+            // Bütün fənləri və əlavə məlumatları topla - olduğu kimi qaytar
+            const subjects = rows.map(row => {
+                return {
+                    subject: row.subject,
+                    result: row.result,
+                    correctAnswer: row.correctAnswer,
+                    wrongAnswer: row.wrongAnswer,
+                    openQuestion: row.openQuestion,
+                    successRate: row.successRate
+                };
+            });
 
-            // Ümumi bal hesabla (bütün fənlərin cəmi)
-            const umumiBal = rows.reduce((sum, row) => sum + row.bal, 0);
+            // Ümumi bal hesabla (bütün fənlərin cəmi) - yalnız hesablama üçün parse et
+            const totalResult = subjects.reduce((sum, subj) => {
+                const value = typeof subj.result === 'number' ? subj.result : (parseFloat(subj.result) || 0);
+                return sum + value;
+            }, 0);
 
             // Excel-dən gələn bütün əlavə məlumatları topla
             const allExcelData = {};
             rows.forEach(row => {
-                if (row.excel_data) {
+                if (row.excelData) {
                     try {
-                        const excelRow = JSON.parse(row.excel_data);
+                        const excelRow = JSON.parse(row.excelData);
                         // Hər sətirdəki bütün sütunları topla
                         Object.keys(excelRow).forEach(key => {
                             if (!allExcelData[key]) {
@@ -305,9 +337,9 @@ app.get('/api/check-result/:kod', async (req, res) => {
                 success: true,
                 data: {
                     ...studentInfo,
-                    fennler: fennler,
-                    umumiBal: umumiBal,
-                    fennSayi: rows.length,
+                    subjects: subjects,
+                    totalResult: totalResult,
+                    subjectCount: rows.length,
                     excelData: allExcelData
                 }
             });
@@ -325,11 +357,9 @@ app.get('/api/check-result/:kod', async (req, res) => {
 
 // Nümunə Excel faylını yükləmək
 app.get('/api/download-sample-excel', (req, res) => {
-    const sampleFilePath = process.env.NODE_ENV === 'production' 
-        ? null 
-        : '/Users/shukurlun/Desktop/imtahan/sample_imtahan_neticeleri.xlsx';
+    const sampleFilePath = path.join(__dirname, 'yeni_imtahan.xlsx');
     
-    if (!sampleFilePath || !fs.existsSync(sampleFilePath)) {
+    if (!fs.existsSync(sampleFilePath)) {
         return res.status(404).json({ 
             error: 'Nümunə fayl tapılmadı! Zəhmət olmasa Excel faylınızı yükləyərkən aşağıdakı formatı istifadə edin:',
             format: {
@@ -362,8 +392,12 @@ app.get('/api/download-sample-excel', (req, res) => {
 // Bütün nəticələri göstərmək (admin üçün)
 app.get('/api/all-results', async (req, res) => {
     try {
-        const stmt = db.prepare('SELECT * FROM imtahan_neticeleri ORDER BY yuklenme_tarixi DESC');
-        const rows = stmt.all();
+        if (!db) {
+            await connectToMongoDB();
+        }
+        
+        const resultsCollection = db.collection('imtahan_neticeleri');
+        const rows = await resultsCollection.find({}).sort({ uploadDate: -1 }).toArray();
         res.json({ success: true, data: rows });
     } catch (err) {
         console.error('Veritabanı xətası:', err);
@@ -408,16 +442,19 @@ app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
         fs.renameSync(req.file.path, filePath);
 
         // Veritabanına yaz
-        const insert = db.prepare(`
-            INSERT INTO sinif_pdf (sinif, fayl_adi, fayl_yolu)
-            VALUES (?, ?, ?)
-            ON CONFLICT(sinif) DO UPDATE SET
-            fayl_adi = excluded.fayl_adi,
-            fayl_yolu = excluded.fayl_yolu,
-            yuklenme_tarixi = CURRENT_TIMESTAMP
-        `);
-        
-        insert.run(sinif, fileName, filePath);
+        const pdfCollection = db.collection('sinif_pdf');
+        await pdfCollection.updateOne(
+            { sinif: sinif },
+            { 
+                $set: {
+                    sinif: sinif,
+                    fayl_adi: fileName,
+                    fayl_yolu: filePath,
+                    yuklenme_tarixi: new Date()
+                }
+            },
+            { upsert: true }
+        );
 
         res.json({
             success: true,
@@ -441,7 +478,7 @@ app.post('/api/upload-pdf', uploadPdf.single('pdfFile'), async (req, res) => {
 });
 
 // Fayl yükləmə (download üçün - istənilən format)
-app.get('/api/download-pdf/:sinif', (req, res) => {
+app.get('/api/download-pdf/:sinif', async (req, res) => {
     const sinif = parseInt(req.params.sinif);
     
     if (!sinif || sinif < 1 || sinif > 11) {
@@ -449,8 +486,8 @@ app.get('/api/download-pdf/:sinif', (req, res) => {
     }
 
     try {
-        const stmt = db.prepare('SELECT * FROM sinif_pdf WHERE sinif = ?');
-        const pdfRecord = stmt.get(sinif);
+        const pdfCollection = db.collection('sinif_pdf');
+        const pdfRecord = await pdfCollection.findOne({ sinif: sinif });
 
         if (!pdfRecord || !fs.existsSync(pdfRecord.fayl_yolu)) {
             return res.status(404).json({ error: `${sinif}-ci sinif üçün fayl tapılmadı!` });
@@ -471,7 +508,7 @@ app.get('/api/download-pdf/:sinif', (req, res) => {
 });
 
 // Fayl görüntüləmə (online - istənilən format)
-app.get('/api/view-pdf/:sinif', (req, res) => {
+app.get('/api/view-pdf/:sinif', async (req, res) => {
     const sinif = parseInt(req.params.sinif);
     
     if (!sinif || sinif < 1 || sinif > 11) {
@@ -479,8 +516,8 @@ app.get('/api/view-pdf/:sinif', (req, res) => {
     }
 
     try {
-        const stmt = db.prepare('SELECT * FROM sinif_pdf WHERE sinif = ?');
-        const pdfRecord = stmt.get(sinif);
+        const pdfCollection = db.collection('sinif_pdf');
+        const pdfRecord = await pdfCollection.findOne({ sinif: sinif });
 
         if (!pdfRecord || !fs.existsSync(pdfRecord.fayl_yolu)) {
             return res.status(404).json({ error: `${sinif}-ci sinif üçün fayl tapılmadı!` });
@@ -535,10 +572,10 @@ app.get('/api/view-pdf/:sinif', (req, res) => {
 });
 
 // Bütün mövcud PDF fayllarını göstərmək
-app.get('/api/list-pdfs', (req, res) => {
+app.get('/api/list-pdfs', async (req, res) => {
     try {
-        const stmt = db.prepare('SELECT sinif, fayl_adi, yuklenme_tarixi FROM sinif_pdf ORDER BY sinif');
-        const rows = stmt.all();
+        const pdfCollection = db.collection('sinif_pdf');
+        const rows = await pdfCollection.find({}).sort({ sinif: 1 }).toArray();
         res.json({ success: true, data: rows });
     } catch (err) {
         console.error('PDF siyahısı xətası:', err);
@@ -588,8 +625,30 @@ app.get('*', (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`Server ${PORT} portunda işləyir`);
     console.log(`Admin paneli: http://localhost:${PORT}/admin`);
     console.log(`Tələbə paneli: http://localhost:${PORT}/`);
+    
+    // MongoDB-yə qoşul
+    if (!db) {
+        await connectToMongoDB();
+    }
+});
+
+// Server bağlananda MongoDB connection-ı bağla
+process.on('SIGINT', async () => {
+    if (client) {
+        await client.close();
+        console.log('MongoDB connection bağlandı');
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    if (client) {
+        await client.close();
+        console.log('MongoDB connection bağlandı');
+    }
+    process.exit(0);
 });
