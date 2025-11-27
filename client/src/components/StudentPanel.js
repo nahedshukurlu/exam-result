@@ -46,6 +46,8 @@ const StudentPanel = () => {
     }
   };
 
+  console.log("test");
+
   const handleReset = () => {
     setKod('');
     setResult(null);

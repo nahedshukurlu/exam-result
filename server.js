@@ -7,7 +7,36 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 8080;
+
+// Render.com proxy üçün trust proxy aktivləşdir
+app.set('trust proxy', true);
+
+// HTTPS redirect middleware (production-da)
+if (process.env.NODE_ENV === 'production') {
+    app.use((req, res, next) => {
+        // Əgər request HTTP-dirsə və X-Forwarded-Proto HTTPS deyilsə, HTTPS-ə yönləndir
+        const forwardedProto = req.header('x-forwarded-proto');
+        const host = req.header('host');
+        
+        // Yalnız HTTP request-ləri HTTPS-ə yönləndir
+        if (forwardedProto && forwardedProto !== 'https' && host) {
+            return res.redirect(301, `https://${host}${req.url}`);
+        }
+        next();
+    });
+}
+
+// Security headers əlavə et
+app.use((req, res, next) => {
+    // HTTPS üçün security headers
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+});
 
 app.use(cors());
 app.use(express.json());
