@@ -9,6 +9,7 @@ import {
 import StudentPanel from "./components/StudentPanel";
 import AdminPanel from "./components/AdminPanel";
 import "./App.css";
+import bilimImage from "./assets/images/bilim.jpg";
 
 function Navbar() {
   const navigate = useNavigate();
@@ -16,9 +17,9 @@ function Navbar() {
   const isAdminPage = location.pathname === "/secure-admin-panel-2024";
 
   const scrollToSection = (sectionId) => {
-        if (sectionId === "netice-bolmesi" && location.pathname !== "/") {
+    if (sectionId === "netice-bolmesi" && location.pathname !== "/") {
       navigate("/");
-            setTimeout(() => {
+      setTimeout(() => {
         const element = document.getElementById(sectionId);
         if (element) {
           element.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -41,7 +42,9 @@ function Navbar() {
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <h1 className="text-xl font-bold text-gray-800">Bilim imtahan mərkəzi</h1>
+            <h1 className="text-xl font-bold text-gray-800">
+              BİL İmtahan
+            </h1>
           </div>
           <div className="flex items-center space-x-4">
             {isAdminPage ? (
@@ -77,22 +80,36 @@ function Navbar() {
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Navbar />
+      <div className="min-h-screen flex flex-col relative">
+        <div
+          className="fixed inset-0 z-0"
+          style={{
+            backgroundImage: `url(${bilimImage})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundRepeat: "no-repeat",
+            backgroundAttachment: "fixed",
+            opacity: 0.2,
+          }}
+        />
+        
+        {/* Content Layer */}
+        <div className="relative z-10 flex flex-col min-h-screen">
+          <Navbar />
 
-        <main className="flex-1 max-w-7xl mx-auto w-full py-6 sm:px-6 lg:px-8">
-          <div id="netice-bolmesi">
-            <Routes>
-              <Route path="/" element={<StudentPanel />} />
-              <Route path="/secure-admin-panel-2024" element={<AdminPanel />} />
-            </Routes>
-          </div>
-        </main>
+          <main className="flex-1 max-w-7xl mx-auto w-full py-6 sm:px-6 lg:px-8">
+            <div id="netice-bolmesi">
+              <Routes>
+                <Route path="/" element={<StudentPanel />} />
+                <Route path="/secure-admin-panel-2024" element={<AdminPanel />} />
+              </Routes>
+            </div>
+          </main>
 
-        <footer
-          id="elaqe-melumatlari"
-          className="bg-white border-t border-gray-200 flex-shrink-0 mt-auto"
-        >
+          <footer
+            id="elaqe-melumatlari"
+            className="bg-white border-t border-gray-200 flex-shrink-0 mt-auto"
+          >
           <div className="max-w-7xl mx-auto px-4 md:pl-12 py-6 max-w-2xl mx-auto">
             <h3 className="text-left text-lg font-semibold text-gray-800 mb-4 max-w-2xl mx-auto">
               Əlaqə Məlumatları
@@ -162,6 +179,7 @@ function App() {
             </div>
           </div>
         </footer>
+        </div>
       </div>
     </Router>
   );

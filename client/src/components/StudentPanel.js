@@ -61,9 +61,15 @@ const StudentPanel = () => {
     if (sinif) {
             setCheckingPdf(true);
       try {
-        const response = await axios.get(`/api/view-pdf/${sinif}`, {
+        // Cache-busting üçün timestamp parametri əlavə et
+        const timestamp = new Date().getTime();
+        const response = await axios.get(`/api/view-pdf/${sinif}?t=${timestamp}`, {
           responseType: 'blob',
-          validateStatus: (status) => status < 500         });
+          validateStatus: (status) => status < 500,
+          headers: {
+            'Cache-Control': 'no-cache'
+          }
+        });
         setPdfAvailable(response.status === 200);
       } catch (err) {
         setPdfAvailable(false);
@@ -79,8 +85,13 @@ const StudentPanel = () => {
     if (!selectedClass) return;
     
     try {
-      const response = await axios.get(`/api/download-pdf/${selectedClass}`, {
-        responseType: 'blob'
+      // Cache-busting üçün timestamp parametri əlavə et
+      const timestamp = new Date().getTime();
+      const response = await axios.get(`/api/download-pdf/${selectedClass}?t=${timestamp}`, {
+        responseType: 'blob',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
       });
       
             const contentType = response.headers['content-type'] || 'application/octet-stream';
@@ -108,10 +119,39 @@ const StudentPanel = () => {
     }
   };
 
-  const handleViewPdf = () => {
+  const handleViewPdf = async () => {
     if (!selectedClass) return;
-        const fileUrl = `/api/view-pdf/${selectedClass}`;
-    window.open(fileUrl, '_blank');
+    
+    try {
+      // Cache-busting üçün timestamp parametri əlavə et
+      const timestamp = new Date().getTime();
+      const response = await axios.get(`/api/view-pdf/${selectedClass}?t=${timestamp}`, {
+        responseType: 'blob',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      // Blob URL yarat və yeni pəncərədə aç
+      const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const newWindow = window.open(url, '_blank');
+      
+      // Pəncərə bağlandıqda blob URL-i təmizlə
+      if (newWindow) {
+        newWindow.addEventListener('beforeunload', () => {
+          window.URL.revokeObjectURL(url);
+        });
+      } else {
+        // Əgər popup bloklanıbsa, bir az gözlə və təmizlə
+        setTimeout(() => {
+          window.URL.revokeObjectURL(url);
+        }, 1000);
+      }
+    } catch (err) {
+      console.error('PDF görüntüləmə xətası:', err);
+      alert('PDF faylı açıla bilmədi!');
+    }
   };
 
     const classes = Array.from({ length: 11 }, (_, i) => i + 1);
