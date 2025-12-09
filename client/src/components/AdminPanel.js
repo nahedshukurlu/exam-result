@@ -1,73 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
-const ADMIN_EMAIL = 'imtahan@bilim.edu.az';
-const ADMIN_PASSWORD = 'Bilim@2024#Secure!Admin';
+const ADMIN_EMAIL = "imtahan@bilim.edu.az";
+const ADMIN_PASSWORD = "Bilim@2024#Secure!Admin";
 
 const AdminPanel = () => {
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState('');
-  
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [allResults, setAllResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
-  
-    const [pdfFile, setPdfFile] = useState(null);
-  const [selectedSinif, setSelectedSinif] = useState('');
+
+  const [pdfFile, setPdfFile] = useState(null);
+  const [selectedSinif, setSelectedSinif] = useState("");
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [pdfUploadResult, setPdfUploadResult] = useState(null);
-  const [pdfError, setPdfError] = useState('');
+  const [pdfError, setPdfError] = useState("");
   const [uploadedPdfs, setUploadedPdfs] = useState([]);
 
-    useEffect(() => {
-    const authStatus = sessionStorage.getItem('adminAuthenticated');
-    if (authStatus === 'true') {
+  useEffect(() => {
+    const authStatus = sessionStorage.getItem("adminAuthenticated");
+    if (authStatus === "true") {
       setIsAuthenticated(true);
     }
   }, []);
 
   const handleLogin = (e) => {
     e.preventDefault();
-    setLoginError('');
+    setLoginError("");
 
     if (email.trim() === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       setIsAuthenticated(true);
-      sessionStorage.setItem('adminAuthenticated', 'true');
+      sessionStorage.setItem("adminAuthenticated", "true");
     } else {
-      setLoginError('Email və ya şifrə yanlışdır!');
-      setPassword('');
+      setLoginError("Email və ya şifrə yanlışdır!");
+      setPassword("");
     }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    sessionStorage.removeItem('adminAuthenticated');
-    setEmail('');
-    setPassword('');
-    navigate('/');
+    sessionStorage.removeItem("adminAuthenticated");
+    setEmail("");
+    setPassword("");
+    navigate("/");
   };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-            const validTypes = [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel'
+      const validTypes = [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
       ];
-      
+
       if (validTypes.includes(selectedFile.type)) {
         setFile(selectedFile);
-        setError('');
+        setError("");
         setUploadResult(null);
       } else {
-        setError('Yalnız Excel faylları (.xlsx, .xls) qəbul edilir!');
+        setError("Yalnız Excel faylları (.xlsx, .xls) qəbul edilir!");
         setFile(null);
       }
     }
@@ -76,34 +76,34 @@ const AdminPanel = () => {
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) {
-      setError('Zəhmət olmasa Excel faylı seçin!');
+      setError("Zəhmət olmasa Excel faylı seçin!");
       return;
     }
 
     setUploading(true);
-    setError('');
+    setError("");
     setUploadResult(null);
 
     const formData = new FormData();
-    formData.append('excelFile', file);
+    formData.append("excelFile", file);
 
     try {
-      const response = await axios.post('/api/upload-excel', formData, {
+      const response = await axios.post("/api/upload-excel", formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
       });
 
       setUploadResult(response.data);
       setFile(null);
-            document.getElementById('excelFile').value = '';
+      document.getElementById("excelFile").value = "";
     } catch (err) {
       if (err.response && err.response.data && err.response.data.error) {
         setError(err.response.data.error);
       } else {
-        setError('Fayl yüklənərkən xəta baş verdi!');
+        setError("Fayl yüklənərkən xəta baş verdi!");
       }
-      console.error('Upload xətası:', err);
+      console.error("Upload xətası:", err);
     } finally {
       setUploading(false);
     }
@@ -111,45 +111,74 @@ const AdminPanel = () => {
 
   const fetchAllResults = async () => {
     try {
-      const response = await axios.get('/api/all-results');
+      const response = await axios.get("/api/all-results");
       setAllResults(response.data.data);
       setShowResults(true);
     } catch (err) {
-      setError('Nəticələr yüklənərkən xəta baş verdi!');
-      console.error('API xətası:', err);
+      setError("Nəticələr yüklənərkən xəta baş verdi!");
+      console.error("API xətası:", err);
     }
   };
 
   const downloadSampleExcel = async () => {
     try {
-      const response = await axios.get('/api/download-sample-excel', {
-        responseType: 'blob'
+      const response = await axios.get("/api/download-sample-excel", {
+        responseType: "blob",
       });
-      
-      const blob = new Blob([response.data], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
-      
+
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
-      link.download = 'nümunə_imtahan_neticeleri.xlsx';
-      link.style.visibility = 'hidden';
+      link.download = "nümunə_imtahan_neticeleri.xlsx";
+      link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      setError('Nümunə fayl yüklənərkən xəta baş verdi!');
-      console.error('Download xətası:', error);
+      setError("Nümunə fayl yüklənərkən xəta baş verdi!");
+      console.error("Download xətası:", error);
     }
   };
 
-    const handlePdfFileChange = (e) => {
+  const addMissingFields = async () => {
+    if (
+      !window.confirm(
+        'Bütün mövcud sətirlərə "İmtina" və "Yazı işi" field-lərini əlavə etmək istəyirsiniz?'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setError("");
+      setUploadResult(null);
+
+      const response = await axios.post("/api/add-missing-fields");
+
+      setUploadResult(response.data);
+    } catch (err) {
+      if (err.response && err.response.data && err.response.data.error) {
+        setError(err.response.data.error);
+      } else {
+        setError("Migration zamanı xəta baş verdi!");
+      }
+      console.error("Migration xətası:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handlePdfFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setPdfFile(selectedFile);
-      setPdfError('');
+      setPdfError("");
       setPdfUploadResult(null);
     }
   };
@@ -157,42 +186,46 @@ const AdminPanel = () => {
   const handlePdfUpload = async (e) => {
     e.preventDefault();
     if (!pdfFile || !selectedSinif) {
-      setPdfError('Zəhmət olmasa fayl və sinifi seçin!');
+      setPdfError("Zəhmət olmasa fayl və sinifi seçin!");
       return;
     }
 
     setUploadingPdf(true);
-    setPdfError('');
+    setPdfError("");
     setPdfUploadResult(null);
 
     const formData = new FormData();
-    formData.append('pdfFile', pdfFile);
-    formData.append('sinif', selectedSinif);
+    formData.append("pdfFile", pdfFile);
+    formData.append("sinif", selectedSinif);
 
     try {
-      const response = await axios.post('/api/upload-pdf', formData, {
+      const response = await axios.post("/api/upload-pdf", formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
       });
 
       setPdfUploadResult(response.data);
       setPdfFile(null);
-      setSelectedSinif('');
-      document.getElementById('pdfFile').value = '';
+      setSelectedSinif("");
+      document.getElementById("pdfFile").value = "";
       fetchUploadedPdfs();
     } catch (err) {
-      console.error('PDF upload xətası:', err);
+      console.error("PDF upload xətası:", err);
       if (err.response) {
-                if (err.response.data && err.response.data.error) {
+        if (err.response.data && err.response.data.error) {
           setPdfError(err.response.data.error);
         } else {
-          setPdfError(`Server xətası: ${err.response.status} ${err.response.statusText}`);
+          setPdfError(
+            `Server xətası: ${err.response.status} ${err.response.statusText}`
+          );
         }
       } else if (err.request) {
-                setPdfError('Serverə bağlantı qurula bilmədi. Zəhmət olmasa serverin işlədiyini yoxlayın.');
+        setPdfError(
+          "Serverə bağlantı qurula bilmədi. Zəhmət olmasa serverin işlədiyini yoxlayın."
+        );
       } else {
-                setPdfError('Fayl yüklənərkən xəta baş verdi!');
+        setPdfError("Fayl yüklənərkən xəta baş verdi!");
       }
     } finally {
       setUploadingPdf(false);
@@ -201,25 +234,25 @@ const AdminPanel = () => {
 
   const fetchUploadedPdfs = async () => {
     try {
-      const response = await axios.get('/api/list-pdfs');
+      const response = await axios.get("/api/list-pdfs");
       if (response.data && response.data.success && response.data.data) {
         setUploadedPdfs(response.data.data);
       } else {
         setUploadedPdfs([]);
       }
     } catch (err) {
-      console.error('PDF siyahısı yüklənərkən xəta:', err);
+      console.error("PDF siyahısı yüklənərkən xəta:", err);
       setUploadedPdfs([]);
     }
   };
 
-    useEffect(() => {
+  useEffect(() => {
     fetchUploadedPdfs();
   }, []);
 
   const classes = Array.from({ length: 11 }, (_, i) => i + 1);
 
-    if (!isAuthenticated) {
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
@@ -234,7 +267,10 @@ const AdminPanel = () => {
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Email
               </label>
               <input
@@ -249,7 +285,10 @@ const AdminPanel = () => {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Şifrə
               </label>
               <input
@@ -267,8 +306,16 @@ const AdminPanel = () => {
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
                 <div className="flex">
                   <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    <svg
+                      className="h-5 w-5 text-red-400"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                   <div className="ml-3">
@@ -314,7 +361,10 @@ const AdminPanel = () => {
 
         <form onSubmit={handlePdfUpload} className="space-y-6">
           <div>
-            <label htmlFor="sinif" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="sinif"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               Sinif Seçin
             </label>
             <select
@@ -333,16 +383,32 @@ const AdminPanel = () => {
           </div>
 
           <div>
-            <label htmlFor="pdfFile" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="pdfFile"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               Fayl Seçin
             </label>
             <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
               <div className="space-y-1 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  className="mx-auto h-12 w-12 text-gray-400"
+                  stroke="currentColor"
+                  fill="none"
+                  viewBox="0 0 48 48"
+                >
+                  <path
+                    d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
                 <div className="flex text-sm text-gray-600">
-                  <label htmlFor="pdfFile" className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500">
+                  <label
+                    htmlFor="pdfFile"
+                    className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
+                  >
                     <span>Fayl seçin</span>
                     <input
                       id="pdfFile"
@@ -359,7 +425,8 @@ const AdminPanel = () => {
             </div>
             {pdfFile && (
               <p className="mt-2 text-sm text-gray-600">
-                Seçilmiş fayl: <span className="font-medium">{pdfFile.name}</span>
+                Seçilmiş fayl:{" "}
+                <span className="font-medium">{pdfFile.name}</span>
               </p>
             )}
           </div>
@@ -371,14 +438,30 @@ const AdminPanel = () => {
           >
             {uploadingPdf ? (
               <span className="flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <svg
+                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
                 Yüklənir...
               </span>
             ) : (
-              'Faylı Yüklə'
+              "Faylı Yüklə"
             )}
           </button>
         </form>
@@ -387,8 +470,16 @@ const AdminPanel = () => {
           <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                <svg
+                  className="h-5 w-5 text-red-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
               <div className="ml-3">
@@ -402,8 +493,16 @@ const AdminPanel = () => {
           <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <svg
+                  className="h-5 w-5 text-green-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
               <div className="ml-3">
@@ -418,19 +517,36 @@ const AdminPanel = () => {
         {}
         {uploadedPdfs && uploadedPdfs.length > 0 && (
           <div className="mt-8">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Yüklənmiş Fayllar</h3>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Yüklənmiş Fayllar
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {uploadedPdfs.map((pdf) => (
-                <div key={pdf.sinif} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div
+                  key={pdf.sinif}
+                  className="bg-gray-50 rounded-lg p-4 border border-gray-200"
+                >
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-medium text-gray-900">{pdf.sinif}-ci sinif</p>
+                      <p className="font-medium text-gray-900">
+                        {pdf.sinif}-ci sinif
+                      </p>
                       <p className="text-sm text-gray-500">
-                        {new Date(pdf.yuklenme_tarixi).toLocaleDateString('az-AZ')}
+                        {new Date(pdf.yuklenme_tarixi).toLocaleDateString(
+                          "az-AZ"
+                        )}
                       </p>
                     </div>
-                    <svg className="h-8 w-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                    <svg
+                      className="h-8 w-8 text-red-500"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   </div>
                 </div>
@@ -453,16 +569,32 @@ const AdminPanel = () => {
 
         <form onSubmit={handleUpload} className="space-y-6">
           <div>
-            <label htmlFor="excelFile" className="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              htmlFor="excelFile"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
               Excel Faylı Seçin
             </label>
             <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
               <div className="space-y-1 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  className="mx-auto h-12 w-12 text-gray-400"
+                  stroke="currentColor"
+                  fill="none"
+                  viewBox="0 0 48 48"
+                >
+                  <path
+                    d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
                 <div className="flex text-sm text-gray-600">
-                  <label htmlFor="excelFile" className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500">
+                  <label
+                    htmlFor="excelFile"
+                    className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
+                  >
                     <span>Fayl seçin</span>
                     <input
                       id="excelFile"
@@ -475,7 +607,9 @@ const AdminPanel = () => {
                   </label>
                   <p className="pl-1">və ya buraya sürükləyin</p>
                 </div>
-                <p className="text-xs text-gray-500">Excel faylları (.xlsx, .xls)</p>
+                <p className="text-xs text-gray-500">
+                  Excel faylları (.xlsx, .xls)
+                </p>
               </div>
             </div>
             {file && (
@@ -493,17 +627,33 @@ const AdminPanel = () => {
             >
               {uploading ? (
                 <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <svg
+                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
                   </svg>
                   Yüklənir...
                 </span>
               ) : (
-                'Faylı Yüklə'
+                "Faylı Yüklə"
               )}
             </button>
-            
+
             <button
               type="button"
               onClick={downloadSampleExcel}
@@ -512,14 +662,63 @@ const AdminPanel = () => {
               Nümunə Excel Fayl
             </button>
           </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={addMissingFields}
+              disabled={uploading}
+              className="w-full bg-yellow-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-yellow-700 focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {uploading ? (
+                <span className="flex items-center justify-center">
+                  <svg
+                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  Migration edilir...
+                </span>
+              ) : (
+                'Veritabanına "İmtina" və "Yazı işi" Field-lərini Əlavə Et'
+              )}
+            </button>
+            <p className="mt-2 text-sm text-gray-500 text-center">
+              Bu düymə bütün mövcud sətirlərə "İmtina" (rejectedAnswer) və "Yazı
+              işi" (openQuestion) field-lərini əlavə edir
+            </p>
+          </div>
         </form>
 
         {error && (
           <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                <svg
+                  className="h-5 w-5 text-red-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
               <div className="ml-3">
@@ -533,8 +732,16 @@ const AdminPanel = () => {
           <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <svg
+                  className="h-5 w-5 text-green-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
               <div className="ml-3">
@@ -542,7 +749,8 @@ const AdminPanel = () => {
                   {uploadResult.message}
                 </p>
                 <p className="text-sm text-green-700 mt-1">
-                  Uğurlu: {uploadResult.successCount} | Xəta: {uploadResult.errorCount}
+                  Uğurlu: {uploadResult.successCount} | Xəta:{" "}
+                  {uploadResult.errorCount}
                 </p>
               </div>
             </div>
@@ -553,9 +761,7 @@ const AdminPanel = () => {
       {}
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold text-gray-800">
-            Bütün Nəticələr
-          </h3>
+          <h3 className="text-xl font-bold text-gray-800">Bütün Nəticələr</h3>
           <button
             onClick={fetchAllResults}
             className="bg-gray-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-700 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
@@ -605,16 +811,18 @@ const AdminPanel = () => {
                       {result.subject}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        result.result >= 50 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          result.result >= 50
+                            ? "bg-green-100 text-green-800"
+                            : "bg-red-100 text-red-800"
+                        }`}
+                      >
                         {result.result}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(result.uploadDate).toLocaleDateString('az-AZ')}
+                      {new Date(result.uploadDate).toLocaleDateString("az-AZ")}
                     </td>
                   </tr>
                 ))}

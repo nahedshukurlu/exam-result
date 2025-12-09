@@ -1,13 +1,14 @@
 {
   "files": {
-    "main.css": "/static/css/main.bc9f4167.css",
-    "main.js": "/static/js/main.a734946e.js",
+    "main.css": "/static/css/main.55e02326.css",
+    "main.js": "/static/js/main.fef133a6.js",
+    "static/media/bilim.jpg": "/static/media/bilim.a41e4e208a84d7a13597.jpg",
     "index.html": "/index.html",
-    "main.bc9f4167.css.map": "/static/css/main.bc9f4167.css.map",
-    "main.a734946e.js.map": "/static/js/main.a734946e.js.map"
+    "main.55e02326.css.map": "/static/css/main.55e02326.css.map",
+    "main.fef133a6.js.map": "/static/js/main.fef133a6.js.map"
   },
   "entrypoints": [
-    "static/css/main.bc9f4167.css",
-    "static/js/main.a734946e.js"
+    "static/css/main.55e02326.css",
+    "static/js/main.fef133a6.js"
   ]
 }
