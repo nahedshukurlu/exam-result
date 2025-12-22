@@ -152,35 +152,6 @@ const AdminPanel = () => {
     }
   };
 
-  const addMissingFields = async () => {
-    if (
-      !window.confirm(
-        'Bütün mövcud sətirlərə "İmtina" və "Yazı işi" field-lərini əlavə etmək istəyirsiniz?'
-      )
-    ) {
-      return;
-    }
-
-    try {
-      setUploading(true);
-      setError("");
-      setUploadResult(null);
-
-      const response = await axios.post("/api/add-missing-fields");
-
-      setUploadResult(response.data);
-    } catch (err) {
-      if (err.response && err.response.data && err.response.data.error) {
-        setError(err.response.data.error);
-      } else {
-        setError("Migration zamanı xəta baş verdi!");
-      }
-      console.error("Migration xətası:", err);
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handlePdfFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
