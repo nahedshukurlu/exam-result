@@ -360,8 +360,18 @@ app.post("/api/upload-excel", upload.single("excelFile"), async (req, res) => {
       console.log("=== EXCEL FAYL ANALİZİ ===");
       console.log("Excel faylındakı sütun adları:", Object.keys(data[0]));
       console.log("İlk sətir məlumatları:", JSON.stringify(data[0], null, 2));
-      console.log("'İmtina' sütunu var?", data[0].hasOwnProperty("İmtina"), "Dəyəri:", data[0]["İmtina"]);
-      console.log("'Yazı işi' sütunu var?", data[0].hasOwnProperty("Yazı işi"), "Dəyəri:", data[0]["Yazı işi"]);
+      console.log(
+        "'İmtina' sütunu var?",
+        data[0].hasOwnProperty("İmtina"),
+        "Dəyəri:",
+        data[0]["İmtina"]
+      );
+      console.log(
+        "'Yazı işi' sütunu var?",
+        data[0].hasOwnProperty("Yazı işi"),
+        "Dəyəri:",
+        data[0]["Yazı işi"]
+      );
     }
 
     const filteredData = data.filter((row) => {
@@ -1583,6 +1593,425 @@ app.get("/api/list-pdfs", async (req, res) => {
   } catch (err) {
     console.error("PDF siyahısı xətası:", err);
     return res.status(500).json({ error: "Veritabanı xətası!" });
+  }
+});
+
+// Doğru cavablar faylları üçün endpoint-lər
+app.post(
+  "/api/upload-answers",
+  uploadPdf.single("answersFile"),
+  async (req, res) => {
+    console.log("Doğru cavablar fayl upload request received");
+    console.log("Request body:", req.body);
+    console.log("Request file:", req.file ? "File exists" : "No file");
+    console.log("Sinif from body:", req.body.sinif);
+
+    try {
+      if (!req.file) {
+        console.log("No file in request");
+        return res.status(400).json({ error: "Fayl seçilməyib!" });
+      }
+
+      const sinif = parseInt(req.body.sinif);
+      console.log("Parsed sinif:", sinif);
+      if (!sinif || sinif < 1 || sinif > 11) {
+        return res
+          .status(400)
+          .json({ error: "Düzgün sinif nömrəsi daxil edin (1-11)!" });
+      }
+
+      // MongoDB connection yoxla
+      if (!db || !client) {
+        await connectToMongoDB();
+      }
+
+      try {
+        await client.db("admin").admin().ping();
+      } catch (err) {
+        console.log("MongoDB connection kəsildi, yenidən qoşulur...");
+        await connectToMongoDB();
+      }
+
+      // GridFS bucket yarat
+      const bucket = new GridFSBucket(db, { bucketName: "sinif_answers" });
+
+      // Köhnə faylı tap (əgər varsa)
+      const answersCollection = db.collection("sinif_dogru_cavablar");
+      const oldRecord = await answersCollection.findOne({ sinif: sinif });
+      const oldGridfsId = oldRecord ? oldRecord.gridfs_id : null;
+
+      // Yeni faylı GridFS-ə yaz
+      const originalExt = path.extname(req.file.originalname);
+      const fileName = `sinif_${sinif}_dogru_cavablar${originalExt}`;
+
+      console.log("Fayl ölçüsü:", req.file.buffer.length, "bytes");
+      console.log("Fayl adı:", fileName);
+      console.log("Fayl tipi:", req.file.mimetype);
+
+      const uploadStream = bucket.openUploadStream(fileName, {
+        metadata: {
+          sinif: sinif,
+          originalName: req.file.originalname,
+          uploadDate: new Date(),
+        },
+      });
+
+      // Promise ilə upload-u gözlə
+      const uploadPromise = new Promise((resolve, reject) => {
+        uploadStream.on("finish", () => {
+          console.log("GridFS upload tamamlandı, ID:", uploadStream.id);
+          resolve(uploadStream.id);
+        });
+
+        uploadStream.on("error", (error) => {
+          console.error("GridFS upload xətası:", error);
+          reject(error);
+        });
+
+        // Buffer-dan yaz
+        uploadStream.end(req.file.buffer);
+      });
+
+      try {
+        // Upload-u gözlə
+        const gridfsId = await uploadPromise;
+
+        console.log("GridFS ID alındı:", gridfsId);
+
+        // GridFS-də faylın mövcud olduğunu və ölçüsünü yoxla
+        const filesCollection = db.collection("sinif_answers.files");
+        const uploadedFileInfo = await filesCollection.findOne({
+          _id: gridfsId,
+        });
+
+        if (uploadedFileInfo) {
+          console.log(
+            "Fayl GridFS-də tapıldı, ölçü:",
+            uploadedFileInfo.length,
+            "bytes"
+          );
+        } else {
+          console.error("Fayl GridFS-də tapılmadı!");
+        }
+
+        // Metadata-nı sinif_dogru_cavablar collection-da saxla
+        await answersCollection.updateOne(
+          { sinif: sinif },
+          {
+            $set: {
+              sinif: sinif,
+              fayl_adi: fileName,
+              gridfs_id: gridfsId,
+              yuklenme_tarixi: new Date(),
+            },
+          },
+          { upsert: true }
+        );
+
+        console.log("Metadata database-ə yazıldı");
+
+        // Yeni fayl uğurla yazıldıqdan sonra köhnə faylı sil
+        if (oldGridfsId && oldGridfsId.toString() !== gridfsId.toString()) {
+          try {
+            await bucket.delete(oldGridfsId);
+            console.log(
+              `Köhnə doğru cavablar faylı silindi: sinif ${sinif}, gridfs_id: ${oldGridfsId}`
+            );
+          } catch (deleteErr) {
+            // Əgər fayl tapılmadısa, xəta vermə, sadəcə log yaz
+            console.log(
+              `Köhnə fayl tapılmadı və ya silinə bilmədi: ${deleteErr.message}`
+            );
+          }
+        }
+
+        res.json({
+          success: true,
+          message: `${sinif}-ci sinif üçün doğru cavablar faylı uğurla yükləndi`,
+          sinif: sinif,
+          fileName: fileName,
+        });
+      } catch (uploadErr) {
+        console.error("GridFS upload xətası:", uploadErr);
+        // Əgər upload uğursuz oldusa, yeni yazılmış faylı sil (əgər varsa)
+        if (uploadStream.id) {
+          try {
+            await bucket.delete(uploadStream.id);
+            console.log("Yazılmış fayl upload xətası səbəbindən silindi");
+          } catch (deleteErr) {
+            console.error("Fayl silinərkən xəta:", deleteErr);
+          }
+        }
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: "Fayl yüklənərkən xəta baş verdi: " + uploadErr.message,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Doğru cavablar fayl yükləmə xətası:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error:
+            "Doğru cavablar faylı yüklənərkən xəta baş verdi: " + error.message,
+        });
+      }
+    }
+  }
+);
+
+app.get("/api/list-answers", async (req, res) => {
+  try {
+    // MongoDB connection yoxla
+    if (!db || !client) {
+      await connectToMongoDB();
+    }
+
+    try {
+      await client.db("admin").admin().ping();
+    } catch (err) {
+      console.log("MongoDB connection kəsildi, yenidən qoşulur...");
+      await connectToMongoDB();
+    }
+
+    const answersCollection = db.collection("sinif_dogru_cavablar");
+    const allRows = await answersCollection
+      .find({})
+      .sort({ sinif: 1 })
+      .toArray();
+
+    // Yalnız mövcud faylları filter et
+    const validRows = [];
+    const bucket = new GridFSBucket(db, { bucketName: "sinif_answers" });
+
+    for (const row of allRows) {
+      let fileExists = false;
+
+      // Əgər gridfs_id varsa, GridFS-də yoxla
+      if (row.gridfs_id) {
+        try {
+          const filesCollection = db.collection("sinif_answers.files");
+          const fileInfo = await filesCollection.findOne({
+            _id: row.gridfs_id,
+          });
+          if (fileInfo) {
+            fileExists = true;
+          }
+        } catch (err) {
+          console.log(
+            `GridFS fayl yoxlanılarkən xəta (sinif ${row.sinif}):`,
+            err.message
+          );
+        }
+      }
+
+      // Yalnız mövcud faylları əlavə et
+      if (fileExists) {
+        validRows.push(row);
+      } else {
+        // Mövcud olmayan faylların metadata-sını sil
+        console.log(
+          `Mövcud olmayan doğru cavablar fayl metadata-sı silinir: sinif ${row.sinif}`
+        );
+        try {
+          await answersCollection.deleteOne({ _id: row._id });
+        } catch (deleteErr) {
+          console.error(
+            `Metadata silinərkən xəta (sinif ${row.sinif}):`,
+            deleteErr.message
+          );
+        }
+      }
+    }
+
+    res.json({ success: true, data: validRows });
+  } catch (err) {
+    console.error("Doğru cavablar siyahısı xətası:", err);
+    return res.status(500).json({ error: "Veritabanı xətası!" });
+  }
+});
+
+app.get("/api/download-answers/:sinif", async (req, res) => {
+  const sinif = parseInt(req.params.sinif);
+
+  if (!sinif || sinif < 1 || sinif > 11) {
+    return res
+      .status(400)
+      .json({ error: "Düzgün sinif nömrəsi daxil edin (1-11)!" });
+  }
+
+  try {
+    // MongoDB connection yoxla
+    if (!db || !client) {
+      await connectToMongoDB();
+    }
+
+    try {
+      await client.db("admin").admin().ping();
+    } catch (err) {
+      console.log("MongoDB connection kəsildi, yenidən qoşulur...");
+      await connectToMongoDB();
+    }
+
+    const answersCollection = db.collection("sinif_dogru_cavablar");
+    const answerRecord = await answersCollection.findOne({ sinif: sinif });
+
+    if (!answerRecord) {
+      return res.status(404).json({
+        error: `${sinif}-ci sinif üçün doğru cavablar faylı tapılmadı!`,
+      });
+    }
+
+    // Əgər gridfs_id varsa, GridFS-dən oxu
+    if (answerRecord.gridfs_id) {
+      const bucket = new GridFSBucket(db, { bucketName: "sinif_answers" });
+      const downloadStream = bucket.openDownloadStream(answerRecord.gridfs_id);
+
+      downloadStream.on("error", (err) => {
+        console.error("Doğru cavablar fayl download xətası:", err);
+        if (!res.headersSent) {
+          res.status(404).json({ error: "Fayl tapılmadı!" });
+        }
+      });
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${answerRecord.fayl_adi}"`
+      );
+
+      const ext = path.extname(answerRecord.fayl_adi).toLowerCase();
+      const mimeTypes = {
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx":
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      };
+      res.setHeader(
+        "Content-Type",
+        mimeTypes[ext] || "application/octet-stream"
+      );
+      // Cache-i deaktiv et ki, hər dəfə yeni fayl götürülsün
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
+      downloadStream.pipe(res);
+    } else {
+      return res.status(404).json({
+        error: `${sinif}-ci sinif üçün doğru cavablar faylı tapılmadı!`,
+      });
+    }
+  } catch (err) {
+    console.error("Doğru cavablar fayl download xətası:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: "Veritabanı xətası!" });
+    }
+  }
+});
+
+app.get("/api/view-answers/:sinif", async (req, res) => {
+  const sinif = parseInt(req.params.sinif);
+
+  if (!sinif || sinif < 1 || sinif > 11) {
+    return res
+      .status(400)
+      .json({ error: "Düzgün sinif nömrəsi daxil edin (1-11)!" });
+  }
+
+  try {
+    // MongoDB connection yoxla
+    if (!db || !client) {
+      await connectToMongoDB();
+    }
+
+    try {
+      await client.db("admin").admin().ping();
+    } catch (err) {
+      console.log("MongoDB connection kəsildi, yenidən qoşulur...");
+      await connectToMongoDB();
+    }
+
+    const answersCollection = db.collection("sinif_dogru_cavablar");
+    const answerRecord = await answersCollection.findOne({ sinif: sinif });
+
+    if (!answerRecord) {
+      return res.status(404).json({
+        error: `${sinif}-ci sinif üçün doğru cavablar faylı tapılmadı!`,
+      });
+    }
+
+    // Əgər gridfs_id varsa, GridFS-dən oxu
+    if (answerRecord.gridfs_id) {
+      const bucket = new GridFSBucket(db, { bucketName: "sinif_answers" });
+
+      // Metadata üçün files collection-dan oxu
+      const filesCollection = db.collection("sinif_answers.files");
+      const fileInfo = await filesCollection.findOne({
+        _id: answerRecord.gridfs_id,
+      });
+
+      if (!fileInfo) {
+        return res.status(404).json({ error: "Fayl metadata tapılmadı!" });
+      }
+
+      const downloadStream = bucket.openDownloadStream(answerRecord.gridfs_id);
+
+      downloadStream.on("error", (err) => {
+        console.error("Doğru cavablar fayl stream xətası:", err);
+        if (!res.headersSent) {
+          res.status(404).json({ error: "Doğru cavablar faylı tapılmadı!" });
+        } else {
+          res.end();
+        }
+      });
+
+      const ext = path.extname(answerRecord.fayl_adi).toLowerCase();
+      const mimeTypes = {
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx":
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".txt": "text/plain",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+      };
+      const contentType = mimeTypes[ext] || "application/octet-stream";
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${answerRecord.fayl_adi}"`
+      );
+      if (fileInfo.length) {
+        res.setHeader("Content-Length", fileInfo.length);
+      }
+      res.setHeader("Accept-Ranges", "bytes");
+      // Cache-i deaktiv et ki, hər dəfə yeni fayl götürülsün
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
+      downloadStream.pipe(res);
+    } else {
+      return res.status(404).json({
+        error: `${sinif}-ci sinif üçün doğru cavablar faylı tapılmadı!`,
+      });
+    }
+  } catch (err) {
+    console.error("Doğru cavablar faylı görüntüləmə xətası:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: "Doğru cavablar faylı görüntülənərkən xəta baş verdi!",
+      });
+    }
   }
 });
 
