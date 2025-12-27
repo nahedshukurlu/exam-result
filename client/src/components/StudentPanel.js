@@ -313,7 +313,10 @@ const StudentPanel = () => {
       <div className="bg-white shadow-lg rounded-lg p-8">
         {}
         <div className="mb-8 border-b border-gray-200">
-          <nav className="flex space-x-8" aria-label="Tabs">
+          <nav
+            className="flex flex-col md:flex-row md:space-x-8 space-y-2 md:space-y-0"
+            aria-label="Tabs"
+          >
             <button
               onClick={() => setActiveTab("results")}
               className={`${
