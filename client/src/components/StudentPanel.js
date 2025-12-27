@@ -38,6 +38,23 @@ const StudentPanel = () => {
           // Debug: API-dən gələn məlumatları çap et
           console.log("API-dən gələn data:", data);
           console.log("Subjects:", data.subjects);
+          console.log("Student Answers:", data.studentAnswers);
+          console.log("Student Answers type:", typeof data.studentAnswers);
+          console.log("Student Answers is null?", data.studentAnswers === null);
+          console.log(
+            "Student Answers is undefined?",
+            data.studentAnswers === undefined
+          );
+          if (data.studentAnswers) {
+            console.log("Student Answers details:", {
+              totalQuestions: data.studentAnswers.totalQuestions,
+              correctAnswers: data.studentAnswers.correctAnswers,
+              wrongAnswers: data.studentAnswers.wrongAnswers,
+              answersCount: data.studentAnswers.answers
+                ? data.studentAnswers.answers.length
+                : 0,
+            });
+          }
           if (data.subjects.length > 0) {
             console.log("İlk subject:", data.subjects[0]);
             console.log("rejectedAnswer:", data.subjects[0].rejectedAnswer);
@@ -598,6 +615,281 @@ const StudentPanel = () => {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Şagird Cavabları Bölməsi */}
+            {result && result.studentAnswers && (
+              <div className="mt-6 bg-white rounded-lg shadow-lg overflow-hidden">
+                <div className="bg-gradient-to-r from-green-600 to-green-700 text-white text-center py-6">
+                  <h3 className="text-2xl font-bold mb-2">Şagird Cavabları</h3>
+                  {result.studentAnswers.totalQuestions > 0 ? (
+                    <p className="text-sm opacity-90">
+                      {result.studentAnswers.correctAnswers || 0} düzgün /{" "}
+                      {result.studentAnswers.totalQuestions} sual
+                    </p>
+                  ) : (
+                    <p className="text-sm opacity-90">
+                      Şagird cavabları məlumatı yoxdur
+                    </p>
+                  )}
+                </div>
+
+                <div className="p-6">
+                  {result.studentAnswers?.totalQuestions > 0 && (
+                    <>
+                      <div className="mb-4 grid grid-cols-3 gap-4">
+                        <div className="bg-green-50 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-green-600">
+                            {result.studentAnswers?.correctAnswers || 0}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Düzgün cavab
+                          </div>
+                        </div>
+                        <div className="bg-red-50 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-red-600">
+                            {result.studentAnswers?.wrongAnswers || 0}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Səhv cavab
+                          </div>
+                        </div>
+                        <div className="bg-blue-50 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-blue-600">
+                            {result.studentAnswers?.totalQuestions || 0}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            Ümumi sual
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {/* Bütün fənləri göstər */}
+                  {result.studentAnswers?.subjects &&
+                  result.studentAnswers?.subjects.length > 0 ? (
+                    <div className="space-y-6">
+                      {result.studentAnswers.subjects.map(
+                        (subject, subjectIndex) => (
+                          <div
+                            key={subjectIndex}
+                            className="border border-gray-200 rounded-lg p-4"
+                          >
+                            <h4 className="text-lg font-bold text-gray-800 mb-4">
+                              {subject.subjectName}
+                            </h4>
+
+                            {/* Fənn statistikaları */}
+                            <div className="mb-4 grid grid-cols-4 gap-4">
+                              <div className="bg-green-50 rounded p-3 text-center">
+                                <div className="text-lg font-bold text-green-600">
+                                  {subject.correctAnswers || 0}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  Düzgün
+                                </div>
+                              </div>
+                              <div className="bg-red-50 rounded p-3 text-center">
+                                <div className="text-lg font-bold text-red-600">
+                                  {subject.wrongAnswers || 0}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  Səhv
+                                </div>
+                              </div>
+                              <div className="bg-yellow-50 rounded p-3 text-center">
+                                <div className="text-lg font-bold text-yellow-600">
+                                  {subject.rejectedAnswers || 0}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  İmtina
+                                </div>
+                              </div>
+                              <div className="bg-blue-50 rounded p-3 text-center">
+                                <div className="text-lg font-bold text-blue-600">
+                                  {subject.totalQuestions || 0}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  Ümumi
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Cavablar cədvəli */}
+                            {subject.answers && subject.answers.length > 0 ? (
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Sual
+                                      </th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Etalon
+                                      </th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Şagirdin Cavabı
+                                      </th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Nəticə
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-200">
+                                    {subject.answers.map(
+                                      (answer, answerIndex) => (
+                                        <tr
+                                          key={answerIndex}
+                                          className={
+                                            answer.isRejected
+                                              ? "bg-yellow-50"
+                                              : answer.isCorrect
+                                              ? "bg-green-50"
+                                              : "bg-red-50"
+                                          }
+                                        >
+                                          <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
+                                            {answer.question}
+                                          </td>
+                                          <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">
+                                            {answer.etalonAnswer}
+                                          </td>
+                                          <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">
+                                            {answer.studentAnswer || "-"}
+                                          </td>
+                                          <td className="px-3 py-2 whitespace-nowrap text-sm">
+                                            {answer.isRejected ? (
+                                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                İmtina
+                                              </span>
+                                            ) : answer.isCorrect ? (
+                                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                                ✓ Düzgün
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                                ✗ Səhv
+                                              </span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      )
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 text-center py-4">
+                                Bu fənn üçün cavab məlumatı yoxdur
+                              </p>
+                            )}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  ) : result.studentAnswers?.answers &&
+                    result.studentAnswers?.answers.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Sual №
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Etalon Cavab
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Şagirdin Cavabı
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Nəticə
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {result.studentAnswers.answers.map(
+                            (answer, index) => (
+                              <tr
+                                key={index}
+                                className={
+                                  answer.isCorrect ? "bg-green-50" : "bg-red-50"
+                                }
+                              >
+                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {answer.question}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                  {answer.etalonAnswer}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                  {answer.studentAnswer}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm">
+                                  {answer.isCorrect ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      <svg
+                                        className="w-4 h-4 mr-1"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                      >
+                                        <path
+                                          fillRule="evenodd"
+                                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                          clipRule="evenodd"
+                                        />
+                                      </svg>
+                                      Düzgün
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                      <svg
+                                        className="w-4 h-4 mr-1"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                      >
+                                        <path
+                                          fillRule="evenodd"
+                                          d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                          clipRule="evenodd"
+                                        />
+                                      </svg>
+                                      Səhv
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0">
+                          <svg
+                            className="h-5 w-5 text-yellow-400"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <p className="text-sm text-yellow-800">
+                            Şagirdin cavabları məlumatı yoxdur
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

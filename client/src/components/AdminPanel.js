@@ -33,6 +33,11 @@ const AdminPanel = () => {
   const [answersError, setAnswersError] = useState("");
   const [uploadedAnswers, setUploadedAnswers] = useState([]);
 
+  const [studentAnswersFile, setStudentAnswersFile] = useState(null);
+  const [uploadingStudentAnswers, setUploadingStudentAnswers] = useState(false);
+  const [studentAnswersUploadResult, setStudentAnswersUploadResult] = useState(null);
+  const [studentAnswersError, setStudentAnswersError] = useState("");
+
   useEffect(() => {
     const authStatus = sessionStorage.getItem("adminAuthenticated");
     if (authStatus === "true") {
@@ -298,6 +303,73 @@ const AdminPanel = () => {
     } catch (err) {
       console.error("Doğru cavablar siyahısı yüklənərkən xəta:", err);
       setUploadedAnswers([]);
+    }
+  };
+
+  const handleStudentAnswersFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      const validTypes = [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+      ];
+
+      if (validTypes.includes(selectedFile.type) || 
+          selectedFile.name.endsWith(".xlsx") || 
+          selectedFile.name.endsWith(".xls")) {
+        setStudentAnswersFile(selectedFile);
+        setStudentAnswersError("");
+        setStudentAnswersUploadResult(null);
+      } else {
+        setStudentAnswersError("Yalnız Excel faylları (.xlsx, .xls) qəbul edilir!");
+        setStudentAnswersFile(null);
+      }
+    }
+  };
+
+  const handleStudentAnswersUpload = async (e) => {
+    e.preventDefault();
+    if (!studentAnswersFile) {
+      setStudentAnswersError("Zəhmət olmasa Excel faylı seçin!");
+      return;
+    }
+
+    setUploadingStudentAnswers(true);
+    setStudentAnswersError("");
+    setStudentAnswersUploadResult(null);
+
+    const formData = new FormData();
+    formData.append("studentAnswersFile", studentAnswersFile);
+
+    try {
+      const response = await axios.post("/api/upload-student-answers", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      setStudentAnswersUploadResult(response.data);
+      setStudentAnswersFile(null);
+      document.getElementById("studentAnswersFile").value = "";
+    } catch (err) {
+      console.error("Şagird cavabları upload xətası:", err);
+      if (err.response) {
+        if (err.response.data && err.response.data.error) {
+          setStudentAnswersError(err.response.data.error);
+        } else {
+          setStudentAnswersError(
+            `Server xətası: ${err.response.status} ${err.response.statusText}`
+          );
+        }
+      } else if (err.request) {
+        setStudentAnswersError(
+          "Serverə bağlantı qurula bilmədi. Zəhmət olmasa serverin işlədiyini yoxlayın."
+        );
+      } else {
+        setStudentAnswersError("Fayl yüklənərkən xəta baş verdi!");
+      }
+    } finally {
+      setUploadingStudentAnswers(false);
     }
   };
 
@@ -810,6 +882,159 @@ const AdminPanel = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {}
+      <div className="bg-white shadow-lg rounded-lg p-8">
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-gray-800 mb-2">
+            Şagird Cavabları Yükləmə
+          </h2>
+          <p className="text-gray-600">
+            Şagirdlərin düzgün və ya səhv cavab qeyd etdiklərini göstərən Excel faylını yükləyin (student_results.xlsx formatında)
+          </p>
+        </div>
+
+        <form onSubmit={handleStudentAnswersUpload} className="space-y-6">
+          <div>
+            <label
+              htmlFor="studentAnswersFile"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Excel Faylı Seçin (student_results.xlsx formatında)
+            </label>
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
+              <div className="space-y-1 text-center">
+                <svg
+                  className="mx-auto h-12 w-12 text-gray-400"
+                  stroke="currentColor"
+                  fill="none"
+                  viewBox="0 0 48 48"
+                >
+                  <path
+                    d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <div className="flex text-sm text-gray-600">
+                  <label
+                    htmlFor="studentAnswersFile"
+                    className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
+                  >
+                    <span>Fayl seçin</span>
+                    <input
+                      id="studentAnswersFile"
+                      name="studentAnswersFile"
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleStudentAnswersFileChange}
+                      className="sr-only"
+                    />
+                  </label>
+                  <p className="pl-1">və ya buraya sürükləyin</p>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Excel faylları (.xlsx, .xls) - student_results.xlsx formatında
+                </p>
+              </div>
+            </div>
+            {studentAnswersFile && (
+              <p className="mt-2 text-sm text-gray-600">
+                Seçilmiş fayl:{" "}
+                <span className="font-medium">{studentAnswersFile.name}</span>
+              </p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={uploadingStudentAnswers || !studentAnswersFile}
+            className="w-full bg-primary-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {uploadingStudentAnswers ? (
+              <span className="flex items-center justify-center">
+                <svg
+                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                Yüklənir...
+              </span>
+            ) : (
+              "Faylı Yüklə"
+            )}
+          </button>
+        </form>
+
+        {studentAnswersError && (
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg
+                  className="h-5 w-5 text-red-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-800">{studentAnswersError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {studentAnswersUploadResult && (
+          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg
+                  className="h-5 w-5 text-green-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-green-800 font-medium">
+                  {studentAnswersUploadResult.message}
+                </p>
+                {studentAnswersUploadResult.processedCount !== undefined && (
+                  <p className="text-sm text-green-700 mt-1">
+                    İşlənmiş sətir sayı: {studentAnswersUploadResult.processedCount}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -5,6 +5,7 @@ const { MongoClient, GridFSBucket } = require("mongodb");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
+const PDFDocument = require("pdfkit");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -329,6 +330,304 @@ function getColumnValue(
     console.log(`${debugName} axtarılan adlar:`, possibleNames);
   }
   return null;
+}
+
+// Fənn məlumatlarını Excel sətirlərindən çıxar
+function extractSubjectData(rawData, startRow, endRow, subjectName) {
+  try {
+    // Fənn bölməsindəki məlumatları tap
+    let questionRow = null; // Sual nömrələri (rəqəmlərlə başlayır)
+    let etalonRow = null; // Etalon cavablar ("etalon" ilə başlayır)
+    let studentAnswerRow = null; // Şagirdin cavabları ("Şagirdin cavabı" ilə başlayır)
+    let resultRow = null; // Nəticələr (+ və ya - işarələri ilə)
+    let scoreRow = null; // Ballar (0 və ya 1)
+    let statsRow = null; // Statistikalar (düz, səhv, imtina)
+
+    // Fənn bölməsindəki sətirləri tap
+    for (let i = startRow; i <= endRow && i < rawData.length; i++) {
+      const row = rawData[i];
+      if (!Array.isArray(row) || row.length === 0) continue;
+
+      const firstCell = row[0];
+      if (firstCell !== null && firstCell !== undefined) {
+        const cellValue = firstCell.toString().trim().toLowerCase();
+
+        // Etalon sətirini tap
+        if (cellValue === "etalon" || cellValue.includes("etalon")) {
+          etalonRow = row;
+          // Etalon sətirindən əvvəlki sətir sual nömrələri ola bilər
+          // Amma yalnız eyni fənn bölməsi daxilində olmalıdır (startRow-dan böyük olmalıdır)
+          if (i > startRow && rawData[i - 1] && Array.isArray(rawData[i - 1])) {
+            const prevRow = rawData[i - 1];
+            if (
+              prevRow[1] &&
+              (typeof prevRow[1] === "number" || !isNaN(parseInt(prevRow[1])))
+            ) {
+              questionRow = prevRow;
+            }
+          }
+        }
+
+        // Şagirdin cavabı sətirini tap
+        if (cellValue.includes("şagirdin") && cellValue.includes("cavab")) {
+          studentAnswerRow = row;
+        }
+
+        // Statistikalar sətirini tap (düz, səhv, imtina)
+        // Statistikalar sətiri adətən "düz", "səhv", "imtina" sözlərini ehtiva edir
+        if (
+          cellValue.includes("düz") ||
+          cellValue.includes("səhv") ||
+          cellValue.includes("imtina")
+        ) {
+          // Əgər sətirdə rəqəmlər varsa, bu statistikalar sətiridir
+          const hasNumbers = row.slice(1).some((cell) => {
+            if (cell === null || cell === undefined) return false;
+            const num = parseFloat(cell);
+            return !isNaN(num) && num >= 0;
+          });
+          if (hasNumbers) {
+            statsRow = row;
+          }
+        }
+      }
+
+      // Nəticələr sətirini tap (+ və ya - işarələri ilə)
+      if (!resultRow && Array.isArray(row) && row.length > 1) {
+        const hasResults = row
+          .slice(1)
+          .some(
+            (cell) =>
+              cell === "+" ||
+              cell === "-" ||
+              cell === "✓" ||
+              cell === "✗" ||
+              cell === "i"
+          );
+        if (
+          hasResults &&
+          row[0] !== "etalon" &&
+          !row[0]?.toString().toLowerCase().includes("şagirdin")
+        ) {
+          resultRow = row;
+        }
+      }
+
+      // Ballar sətirini tap (0 və ya 1 dəyərləri ilə)
+      if (!scoreRow && Array.isArray(row) && row.length > 1) {
+        const hasScores = row
+          .slice(1)
+          .some(
+            (cell) => cell === 0 || cell === 1 || cell === "0" || cell === "1"
+          );
+        if (
+          hasScores &&
+          row[0] !== "etalon" &&
+          !row[0]?.toString().toLowerCase().includes("şagirdin") &&
+          !row.some((cell) => cell === "+" || cell === "-")
+        ) {
+          scoreRow = row;
+        }
+      }
+    }
+
+    if (!etalonRow || !studentAnswerRow) {
+      console.log(
+        `${subjectName} üçün etalon və ya şagirdin cavabı sətiri tapılmadı`
+      );
+      return null;
+    }
+
+    // Sual nömrələrini tap
+    const questions = [];
+    if (questionRow) {
+      for (let i = 1; i < questionRow.length; i++) {
+        const qNum = questionRow[i];
+        if (
+          qNum !== null &&
+          qNum !== undefined &&
+          (typeof qNum === "number" || !isNaN(parseInt(qNum)))
+        ) {
+          questions.push(parseInt(qNum));
+        }
+      }
+    }
+
+    // Əgər sual nömrələri tapılmadısa, etalon sətirindən istifadə et
+    if (questions.length === 0) {
+      for (let i = 1; i < etalonRow.length; i++) {
+        if (
+          etalonRow[i] !== null &&
+          etalonRow[i] !== undefined &&
+          etalonRow[i] !== ""
+        ) {
+          questions.push(i);
+        }
+      }
+    }
+
+    // Cavabları topla
+    const answers = [];
+    let correctCount = 0;
+    let wrongCount = 0;
+    let rejectedCount = 0;
+
+    questions.forEach((questionNum, index) => {
+      const colIndex = index + 1; // 0-cı sütun fənn adıdır
+
+      if (colIndex < etalonRow.length && colIndex < studentAnswerRow.length) {
+        const etalonAnswer = etalonRow[colIndex];
+        const studentAnswer = studentAnswerRow[colIndex];
+        const result = resultRow ? resultRow[colIndex] : null;
+        const score = scoreRow ? scoreRow[colIndex] : null;
+
+        if (
+          etalonAnswer !== null &&
+          etalonAnswer !== undefined &&
+          etalonAnswer !== ""
+        ) {
+          const resultStr = result ? result.toString().trim() : "";
+          const isCorrect =
+            resultStr === "+" ||
+            resultStr === "✓" ||
+            resultStr === "1" ||
+            score === 1;
+          const isRejected =
+            resultStr === "i" ||
+            resultStr === "imtina" ||
+            (resultStr === "" && studentAnswer === null);
+
+          answers.push({
+            question: questionNum,
+            etalonAnswer: etalonAnswer.toString().trim(),
+            studentAnswer:
+              studentAnswer !== null && studentAnswer !== undefined
+                ? studentAnswer.toString().trim()
+                : "",
+            isCorrect: isCorrect,
+            isRejected: isRejected,
+            score:
+              score !== null && score !== undefined ? score : isCorrect ? 1 : 0,
+          });
+
+          if (isRejected) {
+            rejectedCount++;
+          } else if (isCorrect) {
+            correctCount++;
+          } else {
+            wrongCount++;
+          }
+        }
+      }
+    });
+
+    // Statistikaları çıxar
+    let stats = {
+      correct: correctCount,
+      wrong: wrongCount,
+      rejected: rejectedCount,
+    };
+
+    if (statsRow) {
+      // Stats sətirindən məlumatları çıxar
+      // Format: [fənn_adı, "düz", düzgün_sayı, "səhv", səhv_sayı, "imtina", imtina_sayı]
+      // və ya: [fənn_adı, düzgün_sayı, səhv_sayı, imtina_sayı]
+      let düzIndex = -1;
+      let səhvIndex = -1;
+      let imtinaIndex = -1;
+
+      // Əvvəlcə "düz", "səhv", "imtina" sözlərinin indekslərini tap
+      for (let i = 1; i < statsRow.length; i++) {
+        const cell = statsRow[i];
+        if (cell !== null && cell !== undefined) {
+          const cellValue = cell.toString().trim().toLowerCase();
+          if (
+            (cellValue.includes("düz") || cellValue === "düz") &&
+            düzIndex === -1
+          ) {
+            düzIndex = i;
+          } else if (
+            (cellValue.includes("səhv") || cellValue === "səhv") &&
+            səhvIndex === -1
+          ) {
+            səhvIndex = i;
+          } else if (
+            (cellValue.includes("imtina") || cellValue === "imtina") &&
+            imtinaIndex === -1
+          ) {
+            imtinaIndex = i;
+          }
+        }
+      }
+
+      // Əgər "düz" sözü tapıldısa, ondan sonrakı rəqəmi götür
+      if (düzIndex !== -1 && düzIndex + 1 < statsRow.length) {
+        const düzValue = statsRow[düzIndex + 1];
+        if (
+          düzValue !== null &&
+          düzValue !== undefined &&
+          !isNaN(parseFloat(düzValue))
+        ) {
+          stats.correct = parseFloat(düzValue);
+        }
+      }
+
+      // Əgər "səhv" sözü tapıldısa, ondan sonrakı rəqəmi götür
+      if (səhvIndex !== -1 && səhvIndex + 1 < statsRow.length) {
+        const səhvValue = statsRow[səhvIndex + 1];
+        if (
+          səhvValue !== null &&
+          səhvValue !== undefined &&
+          !isNaN(parseFloat(səhvValue))
+        ) {
+          stats.wrong = parseFloat(səhvValue);
+        }
+      }
+
+      // Əgər "imtina" sözü tapıldısa, ondan sonrakı rəqəmi götür
+      if (imtinaIndex !== -1 && imtinaIndex + 1 < statsRow.length) {
+        const imtinaValue = statsRow[imtinaIndex + 1];
+        if (
+          imtinaValue !== null &&
+          imtinaValue !== undefined &&
+          !isNaN(parseFloat(imtinaValue))
+        ) {
+          stats.rejected = parseFloat(imtinaValue);
+        }
+      }
+
+      // Əgər format fərqlidirsə (birbaşa rəqəmlər varsa), onları götür
+      // Format: [fənn_adı, düzgün_sayı, səhv_sayı, imtina_sayı]
+      if (düzIndex === -1 && səhvIndex === -1 && imtinaIndex === -1) {
+        // Birbaşa rəqəmləri yoxla
+        const numericValues = [];
+        for (let i = 1; i < statsRow.length && numericValues.length < 3; i++) {
+          const cell = statsRow[i];
+          if (cell !== null && cell !== undefined) {
+            const num = parseFloat(cell);
+            if (!isNaN(num) && num >= 0) {
+              numericValues.push(num);
+            }
+          }
+        }
+        if (numericValues.length >= 1) stats.correct = numericValues[0];
+        if (numericValues.length >= 2) stats.wrong = numericValues[1];
+        if (numericValues.length >= 3) stats.rejected = numericValues[2];
+      }
+    }
+
+    return {
+      subjectName: subjectName,
+      totalQuestions: answers.length,
+      correctAnswers: stats.correct,
+      wrongAnswers: stats.wrong,
+      rejectedAnswers: stats.rejected,
+      answers: answers,
+    };
+  } catch (error) {
+    console.error(`${subjectName} fənn məlumatlarını çıxararkən xəta:`, error);
+    return null;
+  }
 }
 
 app.post("/api/upload-excel", upload.single("excelFile"), async (req, res) => {
@@ -832,6 +1131,31 @@ app.get("/api/check-result/:kod", async (req, res) => {
         }
       });
 
+      // Şagird cavablarını student_answers collection-dan tap
+      let studentAnswers = null;
+      try {
+        const studentAnswersCollection = db.collection("student_answers");
+        studentAnswers = await studentAnswersCollection.findOne({
+          studentCode: kod,
+        });
+
+        if (studentAnswers) {
+          console.log(`${kod} üçün şagird cavabları tapıldı:`, {
+            totalQuestions: studentAnswers.totalQuestions,
+            correctAnswers: studentAnswers.correctAnswers,
+            wrongAnswers: studentAnswers.wrongAnswers,
+            subjectsCount: studentAnswers.subjects
+              ? studentAnswers.subjects.length
+              : 0,
+          });
+        } else {
+          console.log(`${kod} üçün şagird cavabları tapılmadı`);
+        }
+      } catch (err) {
+        console.error("Şagird cavabları oxunarkən xəta:", err);
+        // Xəta olsa belə, əsas nəticələri göstər
+      }
+
       res.json({
         success: true,
         data: {
@@ -840,6 +1164,15 @@ app.get("/api/check-result/:kod", async (req, res) => {
           totalResult: totalResult || 0,
           subjectCount: rows.length || 0,
           excelData: allExcelData || {},
+          studentAnswers: studentAnswers
+            ? {
+                totalQuestions: studentAnswers.totalQuestions || 0,
+                correctAnswers: studentAnswers.correctAnswers || 0,
+                wrongAnswers: studentAnswers.wrongAnswers || 0,
+                subjects: studentAnswers.subjects || [],
+                sheetName: studentAnswers.sheetName || "",
+              }
+            : null,
         },
       });
     } else {
@@ -2014,6 +2347,325 @@ app.get("/api/view-answers/:sinif", async (req, res) => {
     }
   }
 });
+
+// Şagird cavabları upload endpoint
+// student_results.xlsx formatında Excel faylını qəbul edir
+// Format: "Şagird" sheet-i şagird kodlarını ehtiva edir
+// Hər şagird üçün ayrı sheet var (məsələn "ST001", "ST002")
+// Hər şagird sheet-ində:
+//   - 1-ci sətir: Etalon cavablar
+//   - 2-ci sətir: Şagirdin cavabları
+//   - 3-cü sətir: Düzgün/səhv işarələri (+ və ya -)
+app.post(
+  "/api/upload-student-answers",
+  upload.single("studentAnswersFile"),
+  async (req, res) => {
+    console.log("Şagird cavabları upload request received:", req.file);
+    try {
+      if (!db || !client) {
+        await connectToMongoDB();
+      }
+
+      try {
+        await client.db("admin").admin().ping();
+      } catch (err) {
+        console.log("MongoDB connection kəsildi, yenidən qoşulur...");
+        await connectToMongoDB();
+      }
+
+      if (!req.file) {
+        console.log("No file received");
+        return res.status(400).json({ error: "Excel faylı seçilməyib!" });
+      }
+
+      const workbook = xlsx.read(req.file.buffer, { type: "buffer" });
+      console.log("Excel faylındakı sheet-lər:", workbook.SheetNames);
+
+      const studentAnswersCollection = db.collection("student_answers");
+      let totalProcessed = 0;
+      let totalErrors = 0;
+      const processedSheets = [];
+      const studentCodes = [];
+
+      // "Şagird" sheet-indən şagird kodlarını oxu
+      const studentSheetName = workbook.SheetNames.find(
+        (name) =>
+          name.toLowerCase().includes("şagird") ||
+          name.toLowerCase().includes("student") ||
+          name.toLowerCase().includes("tələbə")
+      );
+
+      if (studentSheetName) {
+        const studentWorksheet = workbook.Sheets[studentSheetName];
+        const studentData = xlsx.utils.sheet_to_json(studentWorksheet);
+
+        // Şagird kodlarını tap (ilk sütunda olur)
+        if (studentData.length > 0) {
+          const firstRow = studentData[0];
+          const columns = Object.keys(firstRow).filter(
+            (key) => key !== "__EMPTY"
+          );
+
+          // İlk sətirdə şagird kodları var
+          columns.forEach((col) => {
+            const code = firstRow[col];
+            if (code && typeof code === "string" && code.trim() !== "") {
+              studentCodes.push(code.trim());
+            }
+          });
+        }
+      }
+
+      console.log("Tapılan şagird kodları:", studentCodes);
+
+      // Hər şagird üçün sheet-i işlə
+      for (const sheetName of workbook.SheetNames) {
+        // "Şagird" sheet-ini atla
+        if (
+          sheetName.toLowerCase().includes("şagird") ||
+          sheetName.toLowerCase().includes("student") ||
+          sheetName.toLowerCase().includes("tələbə")
+        ) {
+          continue;
+        }
+
+        try {
+          const worksheet = workbook.Sheets[sheetName];
+          // Raw data kimi oxu (array formatında)
+          const rawData = xlsx.utils.sheet_to_json(worksheet, {
+            header: 1,
+            defval: null,
+          });
+
+          console.log(`=== ${sheetName} SHEET ANALİZİ ===`);
+          console.log(`Sətir sayı: ${rawData.length}`);
+
+          if (rawData.length < 3) {
+            console.log(`${sheetName} sheet-ində kifayət qədər məlumat yoxdur`);
+            continue;
+          }
+
+          // Şagird kodunu sheet adından tap
+          const studentCode = sheetName.trim();
+
+          // Fənn bölmələrini tap
+          // Hər fənnin adı A sütununda (ilk sütun, row[0]) qeyd olunub
+          // Fənn adından sonra o fənnin məlumatları gəlir
+          // Növbəti fənn adına qədər olan bölmə bir fəndir
+          const subjects = [];
+
+          // A sütununda fənn adı olan sətirləri tap
+          // Fənn adı olan sətir: A sütununda (row[0]) fənn adı var, digər sütunlarda isə boş və ya az məlumat var
+          const subjectNameRows = [];
+          for (let i = 0; i < rawData.length; i++) {
+            const row = rawData[i];
+            if (!Array.isArray(row) || row.length === 0) continue;
+
+            const firstCell = row[0];
+            // Fənn adı A sütununda (row[0]) olmalıdır
+            if (firstCell !== null && firstCell !== undefined) {
+              const cellValue = firstCell.toString().trim();
+
+              // Fənn adı olub-olmadığını yoxla
+              // Fənn adı adətən:
+              // 1. Uzun mətn olur (ən azı 3 simvol)
+              // 2. Rəqəm deyil
+              // 3. Digər sütunlarda (row[1], row[2]...) az məlumat var və ya boşdur (fənn adı sətirində adətən yalnız fənn adı olur)
+              // 4. Mətn fənn adına bənzəyir (fənn adları adətən hərflərdən ibarətdir)
+
+              const isNumeric =
+                !isNaN(parseFloat(cellValue)) && isFinite(cellValue);
+              const isLongEnough = cellValue.length >= 3;
+              const isNotKeyword = !cellValue
+                .toLowerCase()
+                .match(
+                  /^(etalon|şagirdin|cavab|düz|səhv|imtina|sual|\+|\-|\d+)$/
+                );
+
+              // Digər sütunlarda nə qədər məlumat var?
+              const otherCellsData = row
+                .slice(1)
+                .filter(
+                  (cell) =>
+                    cell !== null &&
+                    cell !== undefined &&
+                    cell.toString().trim() !== ""
+                ).length;
+
+              // Fənn adı sətirində adətən yalnız fənn adı olur, digər sütunlarda az məlumat var
+              // Amma bəzən fənn adı sətirindən sonra birbaşa etalon gələ bilər
+              const looksLikeSubjectName =
+                isLongEnough &&
+                !isNumeric &&
+                isNotKeyword &&
+                cellValue.match(/[A-Za-zƏəİiÖöÜüŞşÇçĞğ]/);
+
+              if (looksLikeSubjectName) {
+                // Əlavə yoxlama: növbəti sətirdə "etalon" və ya "şagirdin cavabı" varsa, bu fənn adıdır
+                const nextRow = i + 1 < rawData.length ? rawData[i + 1] : null;
+                const hasEtalonOrStudentAnswer =
+                  nextRow &&
+                  Array.isArray(nextRow) &&
+                  nextRow.some((cell) => {
+                    if (!cell) return false;
+                    const cellStr = cell.toString().toLowerCase().trim();
+                    return (
+                      cellStr.includes("etalon") || cellStr.includes("şagirdin")
+                    );
+                  });
+
+                // Fənn adı olub-olmadığını təsdiq et
+                // Mütləq növbəti sətirdə "etalon" və ya "şagirdin cavabı" olmalıdır
+                // və ya digər sütunlarda çox az məlumat olmalıdır (yalnız fənn adı sətiridir)
+                if (hasEtalonOrStudentAnswer || otherCellsData === 0) {
+                  subjectNameRows.push({ rowIndex: i, subjectName: cellValue });
+                  console.log(`Fənn adı tapıldı: "${cellValue}" (sətir ${i})`);
+                }
+              }
+            }
+          }
+
+          console.log(`Ümumi fənn sayı: ${subjectNameRows.length}`);
+
+          // Hər fənn üçün məlumatları çıxar
+          for (let i = 0; i < subjectNameRows.length; i++) {
+            const currentSubjectRow = subjectNameRows[i];
+            const nextSubjectRow = subjectNameRows[i + 1];
+
+            const subjectName = currentSubjectRow.subjectName;
+            // Fənn adı sətirindən sonrakı sətirdən başla (fənn adı sətirində etalon və şagirdin cavabı yoxdur)
+            const startRow = currentSubjectRow.rowIndex + 1;
+            // Növbəti fənn adı sətirindən əvvəlki sətirə qədər (növbəti fənn adı sətirini daxil etmə)
+            const endRow = nextSubjectRow
+              ? nextSubjectRow.rowIndex - 1
+              : rawData.length - 1;
+
+            // Əgər startRow endRow-dan böyükdürsə, bu fənn üçün məlumat yoxdur
+            if (startRow > endRow) {
+              console.log(
+                `Fənn "${subjectName}" üçün məlumat yoxdur (startRow: ${startRow}, endRow: ${endRow})`
+              );
+              continue;
+            }
+
+            console.log(
+              `Fənn: "${subjectName}" - sətirlər ${startRow}-${endRow} (fənn adı sətiri: ${currentSubjectRow.rowIndex})`
+            );
+
+            // Fənn məlumatlarını çıxar
+            const subjectData = extractSubjectData(
+              rawData,
+              startRow,
+              endRow,
+              subjectName
+            );
+
+            // Yalnız düzgün məlumatları olan fənləri əlavə et
+            // Fənn adı olmalıdır, cavablar olmalıdır və ən azı 1 sual olmalıdır
+            if (
+              subjectData &&
+              subjectData.answers &&
+              subjectData.answers.length > 0 &&
+              subjectData.subjectName &&
+              subjectData.subjectName.trim() !== ""
+            ) {
+              // Eyni fənn adı ilə artıq əlavə edilibsə, atla (duplicate yoxla)
+              const isDuplicate = subjects.some(
+                (s) => s.subjectName === subjectData.subjectName
+              );
+
+              if (!isDuplicate) {
+                subjects.push(subjectData);
+                console.log(
+                  `Fənn "${subjectName}" uğurla əlavə edildi: ${subjectData.answers.length} sual`
+                );
+              } else {
+                console.log(
+                  `Fənn "${subjectName}" artıq əlavə edilib, duplicate atlandı`
+                );
+              }
+            } else {
+              console.log(
+                `Fənn "${subjectName}" üçün məlumat çıxarıla bilmədi və ya məlumat yoxdur`
+              );
+            }
+          }
+
+          console.log(
+            `${sheetName} üçün ${subjects.length} fənn tapıldı:`,
+            subjects.map((s) => s.subjectName)
+          );
+
+          // Ümumi statistikalar
+          let totalQuestions = 0;
+          let totalCorrect = 0;
+          let totalWrong = 0;
+
+          subjects.forEach((subject) => {
+            totalQuestions += subject.totalQuestions || 0;
+            totalCorrect += subject.correctAnswers || 0;
+            totalWrong += subject.wrongAnswers || 0;
+          });
+
+          // MongoDB-yə yaz
+          const document = {
+            studentCode: studentCode,
+            sheetName: sheetName,
+            subjects: subjects,
+            totalQuestions: totalQuestions,
+            correctAnswers: totalCorrect,
+            wrongAnswers: totalWrong,
+            fileName: req.file.originalname,
+            uploadDate: new Date(),
+          };
+
+          await studentAnswersCollection.updateOne(
+            { studentCode: studentCode },
+            { $set: document },
+            { upsert: true }
+          );
+
+          totalProcessed++;
+          processedSheets.push({
+            sheetName: sheetName,
+            studentCode: studentCode,
+            subjectsCount: subjects.length,
+            totalQuestions: totalQuestions,
+            correctAnswers: totalCorrect,
+            wrongAnswers: totalWrong,
+            processed: true,
+          });
+
+          console.log(
+            `${sheetName} üçün ${subjects.length} fənn işlənib: ${totalCorrect} düzgün, ${totalWrong} səhv`
+          );
+        } catch (sheetError) {
+          console.error(`${sheetName} sheet-i işlənərkən xəta:`, sheetError);
+          processedSheets.push({
+            sheetName: sheetName,
+            processed: false,
+            error: sheetError.message,
+          });
+          totalErrors++;
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${totalProcessed} şagirdin cavabları uğurla yükləndi`,
+        processedCount: totalProcessed,
+        errorCount: totalErrors,
+        sheets: processedSheets,
+        fileName: req.file.originalname,
+      });
+    } catch (error) {
+      console.error("Şagird cavabları Excel fayl işlənmə xətası:", error);
+      res.status(500).json({
+        error: "Excel fayl işlənərkən xəta baş verdi: " + error.message,
+      });
+    }
+  }
+);
 
 app.get("*", (req, res) => {
   const possiblePaths = [
