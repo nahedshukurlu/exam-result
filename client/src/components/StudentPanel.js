@@ -368,14 +368,14 @@ const StudentPanel = () => {
                   htmlFor="kod"
                   className="block text-sm font-medium text-gray-700 mb-2"
                 >
-                  Tələbə Kodu
+                  Tələbə Kodu / Şagird ID
                 </label>
                 <input
                   type="text"
                   id="kod"
                   value={kod}
                   onChange={(e) => setKod(e.target.value)}
-                  placeholder="Kodunuzu daxil edin..."
+                  placeholder="Kodunuzu və ya Şagird ID-nizi daxil edin"
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-lg"
                   disabled={loading}
                 />
@@ -547,19 +547,29 @@ const StudentPanel = () => {
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {subject.correctAnswer !== undefined &&
                                 subject.correctAnswer !== null
-                                  ? subject.correctAnswer
+                                  ? typeof subject.correctAnswer === "number"
+                                    ? subject.correctAnswer
+                                    : Array.isArray(subject.correctAnswer)
+                                    ? subject.correctAnswer.join(", ")
+                                    : subject.correctAnswer
                                   : "-"}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {subject.wrongAnswer !== undefined &&
                                 subject.wrongAnswer !== null
-                                  ? subject.wrongAnswer
+                                  ? typeof subject.wrongAnswer === "number"
+                                    ? subject.wrongAnswer
+                                    : Array.isArray(subject.wrongAnswer)
+                                    ? subject.wrongAnswer.join(", ")
+                                    : subject.wrongAnswer
                                   : "-"}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                 {subject.rejectedAnswer !== undefined &&
                                 subject.rejectedAnswer !== null
-                                  ? Array.isArray(subject.rejectedAnswer)
+                                  ? typeof subject.rejectedAnswer === "number"
+                                    ? subject.rejectedAnswer
+                                    : Array.isArray(subject.rejectedAnswer)
                                     ? subject.rejectedAnswer.join(", ")
                                     : subject.rejectedAnswer
                                   : "-"}
@@ -645,7 +655,9 @@ const StudentPanel = () => {
                       <div className="mb-4 grid grid-cols-3 gap-4">
                         <div className="bg-green-50 rounded-lg p-4 text-center">
                           <div className="text-2xl font-bold text-green-600">
-                            {result.studentAnswers?.correctAnswers || 0}
+                            {Number(result.studentAnswers?.correctAnswers) >= 0
+                              ? Number(result.studentAnswers?.correctAnswers)
+                              : 0}
                           </div>
                           <div className="text-sm text-gray-600">
                             Düzgün cavab
@@ -653,7 +665,9 @@ const StudentPanel = () => {
                         </div>
                         <div className="bg-red-50 rounded-lg p-4 text-center">
                           <div className="text-2xl font-bold text-red-600">
-                            {result.studentAnswers?.wrongAnswers || 0}
+                            {Number(result.studentAnswers?.wrongAnswers) >= 0
+                              ? Number(result.studentAnswers?.wrongAnswers)
+                              : 0}
                           </div>
                           <div className="text-sm text-gray-600">
                             Səhv cavab
@@ -661,7 +675,9 @@ const StudentPanel = () => {
                         </div>
                         <div className="bg-blue-50 rounded-lg p-4 text-center">
                           <div className="text-2xl font-bold text-blue-600">
-                            {result.studentAnswers?.totalQuestions || 0}
+                            {Number(result.studentAnswers?.totalQuestions) >= 0
+                              ? Number(result.studentAnswers?.totalQuestions)
+                              : 0}
                           </div>
                           <div className="text-sm text-gray-600">
                             Ümumi sual
@@ -684,11 +700,13 @@ const StudentPanel = () => {
                               {subject.subjectName}
                             </h4>
 
-                            {/* Fənn statistikaları */}
+                            {/* Fənn statistikaları - düzgün/səhv/imtina rəqəmləri */}
                             <div className="mb-4 grid grid-cols-4 gap-4">
                               <div className="bg-green-50 rounded p-3 text-center">
                                 <div className="text-lg font-bold text-green-600">
-                                  {subject.correctAnswers || 0}
+                                  {Number(subject.correctAnswers) >= 0
+                                    ? Number(subject.correctAnswers)
+                                    : 0}
                                 </div>
                                 <div className="text-xs text-gray-600">
                                   Düzgün
@@ -696,7 +714,9 @@ const StudentPanel = () => {
                               </div>
                               <div className="bg-red-50 rounded p-3 text-center">
                                 <div className="text-lg font-bold text-red-600">
-                                  {subject.wrongAnswers || 0}
+                                  {Number(subject.wrongAnswers) >= 0
+                                    ? Number(subject.wrongAnswers)
+                                    : 0}
                                 </div>
                                 <div className="text-xs text-gray-600">
                                   Səhv
@@ -704,7 +724,9 @@ const StudentPanel = () => {
                               </div>
                               <div className="bg-yellow-50 rounded p-3 text-center">
                                 <div className="text-lg font-bold text-yellow-600">
-                                  {subject.rejectedAnswers || 0}
+                                  {Number(subject.rejectedAnswers) >= 0
+                                    ? Number(subject.rejectedAnswers)
+                                    : 0}
                                 </div>
                                 <div className="text-xs text-gray-600">
                                   İmtina
@@ -712,7 +734,9 @@ const StudentPanel = () => {
                               </div>
                               <div className="bg-blue-50 rounded p-3 text-center">
                                 <div className="text-lg font-bold text-blue-600">
-                                  {subject.totalQuestions || 0}
+                                  {Number(subject.totalQuestions) >= 0
+                                    ? Number(subject.totalQuestions)
+                                    : 0}
                                 </div>
                                 <div className="text-xs text-gray-600">
                                   Ümumi
@@ -818,7 +842,11 @@ const StudentPanel = () => {
                               <tr
                                 key={index}
                                 className={
-                                  answer.isCorrect ? "bg-green-50" : "bg-red-50"
+                                  answer.isRejected
+                                    ? "bg-yellow-50"
+                                    : answer.isCorrect
+                                    ? "bg-green-50"
+                                    : "bg-red-50"
                                 }
                               >
                                 <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -828,10 +856,14 @@ const StudentPanel = () => {
                                   {answer.etalonAnswer}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                                  {answer.studentAnswer}
+                                  {answer.studentAnswer ?? "-"}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm">
-                                  {answer.isCorrect ? (
+                                  {answer.isRejected ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                      İmtina
+                                    </span>
+                                  ) : answer.isCorrect ? (
                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                       <svg
                                         className="w-4 h-4 mr-1"
