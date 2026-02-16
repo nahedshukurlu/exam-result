@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import axios from "axios";
 
+const formatQuestionNum = (q) => {
+  if (q == null || q === "") return "—";
+  if (typeof q === "string" && /^\d+\.\d+$/.test(q)) return q;
+  const n = typeof q === "number" ? q : parseFloat(q);
+  if (Number.isNaN(n)) return String(q);
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(10)));
+};
+
 const StudentPanel = () => {
   const [activeTab, setActiveTab] = useState("results"); // 'results', 'topics', or 'answers'
   const [kod, setKod] = useState("");
@@ -778,7 +786,7 @@ const StudentPanel = () => {
                                           }
                                         >
                                           <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
-                                            {answer.question}
+                                            {formatQuestionNum(answer.question)}
                                           </td>
                                           <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-700">
                                             {answer.etalonAnswer}
@@ -850,7 +858,7 @@ const StudentPanel = () => {
                                 }
                               >
                                 <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                  {answer.question}
+                                  {formatQuestionNum(answer.question)}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                                   {answer.etalonAnswer}

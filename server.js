@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const multer = require("multer");
 const xlsx = require("xlsx");
@@ -6,6 +7,16 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const PDFDocument = require("pdfkit");
+const pdfParse = require("pdf-parse");
+let pdfjsLib = null;
+try {
+  pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
+  if (pdfjsLib.GlobalWorkerOptions) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+  }
+} catch (e) {
+  console.log("pdfjs-dist yüklənmədi, tələbə PDF səhifə nömrəsi funksiyası işləməyəcək:", e.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -128,6 +139,25 @@ const upload = multer({
   },
 });
 
+// Şagird cavabları üçün: Excel və ya PDF qəbul edilir
+const uploadStudentAnswers = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: function (req, file, cb) {
+    const isExcel =
+      file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+      file.mimetype === "application/vnd.ms-excel" ||
+      /\.(xlsx|xls)$/i.test(file.originalname);
+    const isPdf =
+      file.mimetype === "application/pdf" || /\.pdf$/i.test(file.originalname);
+    if (isExcel || isPdf) {
+      cb(null, true);
+    } else {
+      cb(new Error("Yalnız Excel (.xlsx, .xls) və ya PDF faylları qəbul edilir!"), false);
+    }
+  },
+});
+
 // PDF faylları memory-də saxlanılır və GridFS-ə yazılır
 const pdfStorage = multer.memoryStorage();
 
@@ -138,9 +168,15 @@ const uploadPdf = multer({
   },
 });
 
-const MONGODB_URI =
-  process.env.MONGODB_URI ||
+// querySrv ECONNREFUSED olduqda SRV DNS işləmir – .env-də MONGODB_URI_STANDARD təyin edin (Atlas Connect > Drivers > standard format)
+const MONGODB_URI_SRV =
   "mongodb+srv://nahedshukurlu_db_user:EebPHBmTA12QOD03@exam-result.bjiyluu.mongodb.net/imtahan_db?retryWrites=true&w=majority";
+const MONGODB_URI_STANDARD_FALLBACK =
+  "mongodb://nahedshukurlu_db_user:EebPHBmTA12QOD03@exam-result-shard-00-00.bjiyluu.mongodb.net:27017,exam-result-shard-00-01.bjiyluu.mongodb.net:27017,exam-result-shard-00-02.bjiyluu.mongodb.net:27017/imtahan_db?ssl=true&replicaSet=atlasbjiyluu-shard-0&authSource=admin&retryWrites=true&w=majority";
+let MONGODB_URI =
+  process.env.MONGODB_URI_STANDARD ||
+  process.env.MONGODB_URI ||
+  MONGODB_URI_SRV;
 const DB_NAME = "imtahan_db";
 let client;
 let db;
@@ -224,6 +260,22 @@ const connectToMongoDB = async (retry = false) => {
         `MongoDB qoşulma xətası (cəhd ${connectionRetries}/${MAX_RETRIES}):`,
         err.message
       );
+
+      const isSrvError =
+        err.message &&
+        (err.message.includes("querySrv") || err.message.includes("ECONNREFUSED"));
+      if (
+        isSrvError &&
+        connectionRetries === 1 &&
+        !process.env.MONGODB_URI_STANDARD &&
+        MONGODB_URI.includes("mongodb+srv")
+      ) {
+        console.log("SRV DNS uğursuz – standart formatla yenidən cəhd edilir...");
+        MONGODB_URI = MONGODB_URI_STANDARD_FALLBACK;
+        connectionRetries = 0;
+        connectionPromise = null;
+        return connectToMongoDB(true);
+      }
 
       if (connectionRetries < MAX_RETRIES) {
         const retryDelay = Math.min(
@@ -661,6 +713,20 @@ function parseLiseySheet(rawData, sheetName) {
   const subjects = [];
   let studentName = "";
   let totalScore = null;
+  let totalScoreSource = "none";
+  let totalScoreCell = null;
+
+  // Lisey faylında ümumi yekun bal Z23 xanasındadır (row 23, col Z).
+  // Bu dəyər birbaşa götürülməlidir və 100 limiti tətbiq olunmamalıdır.
+  const z23Raw = rawData[22] && Array.isArray(rawData[22]) ? rawData[22][25] : null;
+  if (z23Raw != null && z23Raw !== "") {
+    const z23Num = parseFloat(z23Raw);
+    if (!isNaN(z23Num) && isFinite(z23Num) && z23Num >= 0) {
+      totalScore = z23Num;
+      totalScoreSource = "Z23";
+      totalScoreCell = { row: 22, col: 25, value: z23Raw };
+    }
+  }
 
   // Fənn bloklarını tap: ya "SS" sətiri, ya [Fənn adı, sual nömrələri...] + etalon + Şagirdin cavabı
   for (let i = 0; i < rawData.length - 4; i++) {
@@ -701,11 +767,68 @@ function parseLiseySheet(rawData, sheetName) {
     }
     if (!subjectName) subjectName = "Fənn " + (subjects.length + 1);
 
-    // Cavabları topla
-    const answers = [];
+    // Excel-dəki summary sətirlərini tap: "düz", "səhv", "imtina" etiket sətiri və alt sətirdə rəqəmlər + "bal" (B6 və alt xanalar)
+    // Dəyərlər YALNIZ bu xanalardan götürülür; Excel-in hesablama məntiqi (1, 2, 3, 4.1, 4.2 və s.) eyni qalır
+    let subjectBal = null;
+    let summaryValueRow = null;
+    for (let j = i + 5; j <= Math.min(i + 12, rawData.length - 2); j++) {
+      const labelRow = rawData[j];
+      const valueRow = rawData[j + 1];
+      if (!labelRow || !Array.isArray(labelRow) || !valueRow || !Array.isArray(valueRow)) continue;
+      const lb1 = firstCell(labelRow, 1).toLowerCase().replace(/\s+/g, " ").trim();
+      const lb2 = firstCell(labelRow, 2).toLowerCase().replace(/\s+/g, " ").trim();
+      const lb3 = firstCell(labelRow, 3).toLowerCase().replace(/\s+/g, " ").trim();
+      const isLabelRow = lb1.includes("düz") && lb2.includes("səhv") && lb3.includes("imtina");
+      if (!isLabelRow) continue;
+      const v1 = valueRow[1];
+      const v2 = valueRow[2];
+      const v3 = valueRow[3];
+      const valueRowIsNumeric =
+        (v1 != null && (typeof v1 === "number" || !isNaN(parseFloat(v1)))) ||
+        (v2 != null && (typeof v2 === "number" || !isNaN(parseFloat(v2)))) ||
+        (v3 != null && (typeof v3 === "number" || !isNaN(parseFloat(v3))));
+      if (valueRowIsNumeric) {
+        summaryValueRow = valueRow;
+        break;
+      }
+    }
+
     let correctCount = 0;
     let wrongCount = 0;
     let rejectedCount = 0;
+    let totalQuestionsFromSummary = null;
+    if (summaryValueRow) {
+      const duzVal = summaryValueRow[1];
+      const sehvVal = summaryValueRow[2];
+      const imtinaVal = summaryValueRow[3];
+      correctCount = duzVal != null && (typeof duzVal === "number" || !isNaN(parseFloat(duzVal)))
+        ? Math.round(Number(duzVal))
+        : 0;
+      wrongCount = sehvVal != null && (typeof sehvVal === "number" || !isNaN(parseFloat(sehvVal)))
+        ? Math.round(Number(sehvVal))
+        : 0;
+      rejectedCount = imtinaVal != null && (typeof imtinaVal === "number" || !isNaN(parseFloat(imtinaVal)))
+        ? Math.round(Number(imtinaVal))
+        : 0;
+      totalQuestionsFromSummary = correctCount + wrongCount + rejectedCount;
+      // Bal: imtina sütunundan sonra (sağında)
+      for (let k = 1; k < summaryValueRow.length - 1; k++) {
+        const cell = summaryValueRow[k];
+        if (cell != null && String(cell).trim().toLowerCase() === "bal") {
+          const next = summaryValueRow[k + 1];
+          if (next != null) {
+            const num = Number(parseFloat(next));
+            if (!isNaN(num) && num >= 0 && num <= 100) {
+              subjectBal = Math.round(num * 100) / 100;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Cavabları topla: sual nömrələri Excel-də yazıldığı kimi – 1, 2, 3, 4.1, 4.2, 4.3, 4.4, 5, ... (heç nə birləşdirilmir)
+    const answers = [];
     for (let col = 1; col < Math.min(etalonRow.length, studentAnswerRow.length); col++) {
       const etalonVal = etalonRow[col];
       if (etalonVal === null || etalonVal === undefined || etalonVal === "") continue;
@@ -717,8 +840,6 @@ function parseLiseySheet(rawData, sheetName) {
         resultVal === "✓" ||
         scoreVal === 1 ||
         (typeof scoreVal === "number" && scoreVal > 0 && resultVal !== "-");
-      // Açıq suallarda tələbə 0 cavabı qeyd edəndə Excel bəzən 0.001 saxlayır (görüntüdə 0).
-      // 0 və 0.001 (və 0..0.01 arası) heç vaxt imtina sayılmır – bu real cavabdır.
       const studentNum = studentVal != null ? parseFloat(studentVal) : NaN;
       const isZeroOrNearZero =
         studentVal === 0 ||
@@ -730,14 +851,19 @@ function parseLiseySheet(rawData, sheetName) {
       const isRejected =
         resultSaysImtina && !isZeroOrNearZero;
 
-      // Sual nömrəsi Excel-dəki ardıcıllığa əsasən: 1, 2, 3, 4.1, 4.2, 4.3, ... (index yox, faktiki dəyər)
+      // Sual nömrəsi: Excel-dəki birinci sətirdən eyni qaydada – 1, 2, 3, 4.1, 4.2, 4.3, 4.4, 5, ...
       const qNum = questionRow[col];
       let questionNum = col;
       if (qNum !== null && qNum !== undefined && qNum !== "") {
         const str = String(qNum).trim();
         if (str !== "") {
           const asNum = parseFloat(qNum);
-          questionNum = !isNaN(asNum) ? asNum : str;
+          if (!isNaN(asNum)) {
+            // 4.1, 4.2, 4.3, 4.4 kimi onluq nömrələri Excel-də olduğu kimi saxla (string kimi, yuvarlaqlaşdırma olmasın)
+            questionNum = /^\d+\.\d+$/.test(str) ? str : asNum;
+          } else {
+            questionNum = str;
+          }
         }
       }
 
@@ -755,34 +881,37 @@ function parseLiseySheet(rawData, sheetName) {
             ? (typeof scoreVal === "number" ? scoreVal : parseFloat(scoreVal)) || 0
             : isCorrect ? 1 : 0,
       });
-      if (isRejected) rejectedCount++;
-      else if (isCorrect) correctCount++;
-      else wrongCount++;
+      if (!summaryValueRow) {
+        if (isRejected) rejectedCount++;
+        else if (isCorrect) correctCount++;
+        else wrongCount++;
+      }
     }
 
-    // Bal sətirindən fənn balını tap: "bal" sözündən sonrakı rəqəm
-    let subjectBal = null;
-    for (let j = i + 4; j <= Math.min(i + 12, rawData.length - 1); j++) {
-      const r = rawData[j];
-      if (!r || !Array.isArray(r)) continue;
-      for (let k = 1; k < r.length - 1; k++) {
-        if (r[k] != null && String(r[k]).trim().toLowerCase() === "bal") {
-          const next = r[k + 1];
-          if (next != null) {
-            const num = parseFloat(next);
-            if (!isNaN(num) && num >= 0 && num <= 100) {
-              subjectBal = num;
-              break;
+    // Summary yoxdursa balı köhnə üsulla axtar
+    if (subjectBal == null) {
+      for (let j = i + 4; j <= Math.min(i + 12, rawData.length - 1); j++) {
+        const r = rawData[j];
+        if (!r || !Array.isArray(r)) continue;
+        for (let k = 1; k < r.length - 1; k++) {
+          if (r[k] != null && String(r[k]).trim().toLowerCase() === "bal") {
+            const next = r[k + 1];
+            if (next != null) {
+              const num = parseFloat(next);
+              if (!isNaN(num) && num >= 0 && num <= 100) {
+                subjectBal = num;
+                break;
+              }
             }
           }
         }
+        if (subjectBal != null) break;
       }
-      if (subjectBal != null) break;
     }
 
     subjects.push({
       subjectName,
-      totalQuestions: answers.length,
+      totalQuestions: totalQuestionsFromSummary != null ? totalQuestionsFromSummary : answers.length,
       correctAnswers: correctCount,
       wrongAnswers: wrongCount,
       rejectedAnswers: rejectedCount,
@@ -826,8 +955,10 @@ function parseLiseySheet(rawData, sheetName) {
             const cell = row[j];
             if (cell == null || cell === "") continue;
             const num = parseFloat(cell);
-            if (!isNaN(num) && num >= 0 && num <= 100) {
+            if (totalScore == null && !isNaN(num) && num >= 0 && num <= 100) {
               totalScore = num;
+              totalScoreSource = "id-row-near-name";
+              totalScoreCell = { row: i, col: j, value: cell };
               break;
             }
           }
@@ -851,10 +982,12 @@ function parseLiseySheet(rawData, sheetName) {
       }
       if (best != null) {
         totalScore = best;
+        totalScoreSource = "fallback-max-last5";
         break;
       }
     }
   }
+
 
   return {
     studentCode: String(sheetName).trim(),
@@ -862,6 +995,337 @@ function parseLiseySheet(rawData, sheetName) {
     totalScore: totalScore != null ? totalScore : undefined,
     subjects,
   };
+}
+
+// Etalon / şagird cavabı sətirini tam N tokena bölür: tək rəqəmlər birləşmir (1, 2 ayrı), yalnız 10–99 iki rəqəm bir token; N = +/- sətirinin uzunluğu
+function tokenizeAnswerLineToLength(str, targetCount) {
+  const s = (str || "").replace(/\s/g, "");
+  const tokens = [];
+  let i = 0;
+  let needed = targetCount;
+  while (i < s.length && needed > 0) {
+    const c = s[i];
+    if (/[A-Za-z*]/.test(c)) {
+      tokens.push(c);
+      i++;
+      needed--;
+      continue;
+    }
+    if (/\d/.test(c)) {
+      const remaining = s.length - i;
+      const two = remaining >= 2 ? s.slice(i, i + 2) : c;
+      const twoVal = parseInt(two, 10);
+      const takeTwo = remaining >= 2 && twoVal >= 10 && twoVal <= 99 && (remaining - 2) >= (needed - 1);
+      if (takeTwo) {
+        tokens.push(two);
+        i += 2;
+      } else {
+        tokens.push(c);
+        i += 1;
+      }
+      needed--;
+    } else {
+      i++;
+    }
+  }
+  return tokens;
+}
+
+// Köhnə davranış: N verilməyəndə hərflər tək, rəqəm yalnız 10–99 olanda iki simvol
+function tokenizeAnswerLine(str) {
+  const s = (str || "").replace(/\s/g, "");
+  const tokens = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/[A-Za-z*]/.test(c)) {
+      tokens.push(c);
+      i++;
+    } else if (/\d/.test(c)) {
+      if (i + 1 < s.length && /\d/.test(s[i + 1])) {
+        const two = s[i] + s[i + 1];
+        const val = parseInt(two, 10);
+        if (val >= 10 && val <= 99) {
+          tokens.push(two);
+          i += 2;
+          continue;
+        }
+      }
+      tokens.push(c);
+      i++;
+    } else {
+      i++;
+    }
+  }
+  return tokens;
+}
+
+// Sual nömrələri: 1, 2, 3, 4.1, 4.2, 4.3, 4.4, 5, …, 26. PDF-də boşluq/vergüllə ayrılmış rəqəmlər olduğu kimi parse edilir (1, 2, 3, 4 birləşmir).
+function parseQuestionNumberLine(line) {
+  if (!line || typeof line !== "string") return [];
+  // Əvvəlcə boşluq və vergül ilə ayır – hər token ayrı sual nömrəsi (1 2 3 4 → 1, 2, 3, 4)
+  const tokens = line
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const result = [];
+  for (const t of tokens) {
+    const normalized = t.replace(/,/g, ".");
+    if (/^\d+\.\d+$/.test(normalized)) {
+      const val = parseFloat(normalized);
+      if (!isNaN(val)) result.push(val);
+    } else if (/^\d+$/.test(normalized)) {
+      const val = parseInt(normalized, 10);
+      if (!isNaN(val)) result.push(val);
+    }
+  }
+  if (result.length > 0) return result;
+  // Fallback: boşluq yoxdursa (tək uzun sətir) – rəqəmləri tək-tək və 4.1 kimi sub-nömrələri saxlayaraq parse et
+  const s = line.replace(/,/g, ".").replace(/\s/g, "");
+  let i = 0;
+  while (i < s.length) {
+    if (!/\d/.test(s[i])) {
+      i++;
+      continue;
+    }
+    if (s[i + 1] === "." && /\d/.test(s[i + 2])) {
+      result.push(parseFloat(s[i] + s[i + 1] + s[i + 2]));
+      i += 3;
+      continue;
+    }
+    if (/\d/.test(s[i + 1])) {
+      const two = parseInt(s[i] + s[i + 1], 10);
+      if (two >= 10 && two <= 99) {
+        result.push(two);
+        i += 2;
+        continue;
+      }
+    }
+    result.push(parseInt(s[i], 10));
+    i += 1;
+  }
+  return result;
+}
+
+// BİLLİS PDF mətnindən şagird bloklarını parse et (BİLLİS9-11 SINAQ nəticə PDF formatı)
+// Qeyd: PDF-də şagird sətiri (3000XX Ad Soyad ÜmumiBal) həmin şagirdin fənn bloklarından SONRA gəlir.
+function parseBillisPdfText(pdfText) {
+  const students = [];
+  const lines = pdfText.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+  const subjectNames = ["Xarici dili", "Ana dili", "Riyaziyyat"];
+  const codeRegex = /^(3000\d{2})(.*)$/;
+
+  const codeLineIndices = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (codeRegex.test(lines[i])) codeLineIndices.push(i);
+  }
+
+  const seenStudentCodes = new Set();
+  for (let k = 0; k < codeLineIndices.length; k++) {
+    const codeIdx = codeLineIndices[k];
+    const headerLine = lines[codeIdx];
+    const codeMatch = codeRegex.exec(headerLine);
+    if (!codeMatch) continue;
+
+    const studentCode = codeMatch[1];
+    if (seenStudentCodes.has(studentCode)) continue;
+    seenStudentCodes.add(studentCode);
+    const restOfFirstLine = (codeMatch[2] || "").trim();
+
+    let studentName = "";
+    let totalScore = null;
+    const lastNumMatch = restOfFirstLine.match(/(\d+(?:\.\d+)?)\s*$/);
+    if (lastNumMatch) {
+      const score = parseFloat(lastNumMatch[1]);
+      if (!isNaN(score) && score >= 0 && score <= 250) {
+        totalScore = score;
+        studentName = restOfFirstLine.slice(0, lastNumMatch.index).trim();
+      } else {
+        studentName = restOfFirstLine;
+      }
+    } else {
+      studentName = restOfFirstLine;
+    }
+    if (studentName && /^\d/.test(studentName)) studentName = "";
+
+    const blockStart = k === 0 ? 0 : codeLineIndices[k - 1] + 1;
+    const blockEnd = codeIdx;
+    const blockLines = lines.slice(blockStart, blockEnd);
+    const blockText = blockLines.join("\n");
+
+    const subjects = [];
+    for (const subjName of subjectNames) {
+      const idx = blockText.indexOf(subjName);
+      if (idx === -1) continue;
+      let section = blockText.slice(idx);
+      const nextSubj = subjectNames.find((n) => n !== subjName && section.indexOf(n) !== -1);
+      if (nextSubj) {
+        const nextIdx = section.indexOf(nextSubj);
+        if (nextIdx !== -1) section = section.slice(0, nextIdx);
+      }
+      const sectionLines = section.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      let questionNumberLine = null;
+      let etalonLine = null;
+      let studentLine = null;
+      let resultLine = null;
+      let bal = null;
+      let correctCount = 0;
+      let wrongCount = 0;
+      let rejectedCount = 0;
+
+      const firstLine = sectionLines[0] || "";
+      const subjNameLower = subjName.toLowerCase();
+      const nameIdx = firstLine.toLowerCase().indexOf(subjNameLower);
+      if (nameIdx !== -1) {
+        const afterName = firstLine.slice(nameIdx + subjName.length).trim();
+        if (afterName.length > 0 && /[\d.,\s]/.test(afterName)) {
+          questionNumberLine = afterName;
+        }
+      }
+
+      for (let j = 0; j < sectionLines.length; j++) {
+        const l = sectionLines[j];
+        if (l.toLowerCase() === "etalon" && j + 1 < sectionLines.length) {
+          if (j > 0 && !questionNumberLine && /[\d.,\s]/.test(sectionLines[j - 1]) && sectionLines[j - 1].replace(/\s/g, "").length > 4) {
+            questionNumberLine = sectionLines[j - 1];
+          }
+          etalonLine = sectionLines[j + 1];
+          j++;
+          continue;
+        }
+        if (!questionNumberLine && /^\d[\d.\s,]*\d$|^\d+\.\d+/.test(l) && l.replace(/\s/g, "").length > 4) {
+          questionNumberLine = l;
+        }
+        if (l.toLowerCase().includes("şagirdin") && j + 2 < sectionLines.length) {
+          const next = sectionLines[j + 1];
+          if (next.toLowerCase().includes("cavab")) {
+            studentLine = sectionLines[j + 2];
+            j += 2;
+            continue;
+          }
+        }
+        if (l.toLowerCase().includes("şagirdin") && l.toLowerCase().includes("cavab") && j + 1 < sectionLines.length) {
+          studentLine = sectionLines[j + 1];
+          j++;
+          continue;
+        }
+        if (/^[+\-i\s]+$/i.test(l.replace(/\s/g, "")) && l.length > 5) {
+          resultLine = l;
+          continue;
+        }
+        const balLineMatch = l.match(/^(\d+)bal\s*([\d.]+)/i) || l.match(/(\d+)\s*bal\s*([\d.]+)/i);
+        if (balLineMatch) {
+          const beforeBal = balLineMatch[1];
+          const afterBal = parseFloat(balLineMatch[2]);
+          if (!isNaN(afterBal)) bal = afterBal;
+          if (beforeBal.length >= 3) {
+            rejectedCount = parseInt(beforeBal.slice(-1), 10) || 0;
+            correctCount = parseInt(beforeBal.slice(0, beforeBal.length - 3), 10) || 0;
+            wrongCount = parseInt(beforeBal.slice(beforeBal.length - 3, -1), 10) || 0;
+          }
+        }
+        const anyBalMatch = l.match(/bal\s*([\d.]+)/i);
+        if (anyBalMatch) {
+          const b = parseFloat(anyBalMatch[1]);
+          if (!isNaN(b)) bal = b;
+        }
+        if (l.toLowerCase().includes("düz") && l.toLowerCase().includes("səhv")) {
+          const düzMatch = l.match(/düz\s*(\d+)/i);
+          const səhvMatch = l.match(/səhv\s*(\d+)/i);
+          const imtinaMatch = l.match(/imtina\s*(\d+)/i);
+          if (düzMatch) correctCount = parseInt(düzMatch[1], 10) || 0;
+          if (səhvMatch) wrongCount = parseInt(səhvMatch[1], 10) || 0;
+          if (imtinaMatch) rejectedCount = parseInt(imtinaMatch[1], 10) || 0;
+        }
+      }
+
+      if (!etalonLine || !studentLine) continue;
+      const resultChars = resultLine ? resultLine.replace(/\s/g, "").split("") : [];
+      let n;
+      let etalonTokens;
+      let studentTokens;
+      if (resultChars.length > 0) {
+        n = resultChars.length;
+        etalonTokens = tokenizeAnswerLineToLength(etalonLine, n);
+        studentTokens = tokenizeAnswerLineToLength(studentLine, n);
+      } else {
+        etalonTokens = tokenizeAnswerLine(etalonLine);
+        studentTokens = tokenizeAnswerLine(studentLine);
+        n = Math.max(etalonTokens.length, studentTokens.length, 1);
+      }
+      let questionNumbers = parseQuestionNumberLine(questionNumberLine || "");
+      if (questionNumbers.length > n) questionNumbers = questionNumbers.slice(0, n);
+      while (questionNumbers.length < n) questionNumbers.push(questionNumbers.length + 1);
+      const answers = [];
+      for (let q = 0; q < n; q++) {
+        const res = resultChars[q] != null ? String(resultChars[q]).trim() : "";
+        const isCorrect = res === "+" || res === "✓";
+        const isRejected = res === "i" || res.toLowerCase() === "imtina";
+        const et = etalonTokens[q] != null ? String(etalonTokens[q]).trim() : "";
+        const st = studentTokens[q] != null ? String(studentTokens[q]).trim() : "";
+        const questionNum = questionNumbers[q] != null ? questionNumbers[q] : q + 1;
+        if (et === "" && st === "" && res === "") continue;
+        answers.push({
+          question: questionNum,
+          etalonAnswer: et || "",
+          studentAnswer: st,
+          isCorrect: !!isCorrect,
+          isRejected: !!isRejected,
+          score: isCorrect ? 1 : 0,
+        });
+      }
+      const correctFromAnswers = answers.filter((a) => a.isCorrect).length;
+      const wrongFromAnswers = answers.filter((a) => !a.isCorrect && !a.isRejected).length;
+      const rejectedFromAnswers = answers.filter((a) => a.isRejected).length;
+      subjects.push({
+        subjectName: subjName,
+        totalQuestions: answers.length,
+        correctAnswers: correctCount > 0 ? correctCount : correctFromAnswers,
+        wrongAnswers: wrongCount > 0 ? wrongCount : wrongFromAnswers,
+        rejectedAnswers: rejectedCount > 0 ? rejectedCount : rejectedFromAnswers,
+        answers,
+        bal: bal != null ? bal : undefined,
+      });
+    }
+
+    if (subjects.length > 0) {
+      students.push({
+        studentCode,
+        studentName: studentName || studentCode,
+        totalScore: totalScore != null ? totalScore : undefined,
+        subjects,
+      });
+    }
+  }
+  return students;
+}
+
+// PDF-də hər tələbə kodunun hansı səhifədə olduğunu tapır (pdfjs-dist ilə); tələbə blokunu "screenshot" üçün səhifə göstərməyə imkan verir
+async function getStudentPageNumbersFromPdf(pdfBuffer, studentCodes) {
+  const pageByCode = {};
+  if (!pdfjsLib || !studentCodes.length) return pageByCode;
+  try {
+    const data = new Uint8Array(pdfBuffer);
+    const loadingTask = pdfjsLib.getDocument({ data });
+    const pdfDocument = await loadingTask.promise;
+    const numPages = pdfDocument.numPages;
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdfDocument.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item) => (item.str || "")).join(" ");
+      for (const code of studentCodes) {
+        if (pageText.indexOf(code) !== -1) {
+          pageByCode[code] = pageNum;
+        }
+      }
+      page.cleanup();
+    }
+    await pdfDocument.destroy();
+  } catch (err) {
+    console.error("getStudentPageNumbersFromPdf xətası:", err.message);
+  }
+  return pageByCode;
 }
 
 // Lisey formatı olub-olmadığını yoxla: ilk işlənə bilən sheet-də SS/etalon/Şagirdin cavabı var
@@ -879,7 +1343,20 @@ function isLiseyFormat(workbook) {
     const r0 = raw[0] && raw[0][0] != null ? raw[0][0].toString().trim().toUpperCase() : "";
     const r1 = raw[1] && raw[1][0] != null ? raw[1][0].toString().trim().toLowerCase() : "";
     const r2 = raw[2] && raw[2][0] != null ? raw[2][0].toString().trim().toLowerCase() : "";
-    if (r0 === "SS" && r1 === "etalon" && r2.includes("şagirdin") && r2.includes("cavab"))
+    const secondCell = raw[0] && raw[0][1] != null ? raw[0][1] : null;
+    const hasNumericSecond =
+      typeof secondCell === "number" ||
+      (secondCell != null && !isNaN(parseFloat(secondCell)));
+    const startsWithSubjectAndQuestions =
+      r0.length >= 2 &&
+      /[A-Za-zƏəİiÖöÜüŞşÇçĞğ]/.test(r0) &&
+      hasNumericSecond;
+    if (
+      ((r0 === "SS") || startsWithSubjectAndQuestions) &&
+      r1 === "etalon" &&
+      r2.includes("şagirdin") &&
+      r2.includes("cavab")
+    )
       return true;
   }
   return false;
@@ -1308,6 +1785,16 @@ app.get("/api/check-result/:kod", async (req, res) => {
       .find({ code: kod })
       .sort({ subject: 1 })
       .toArray();
+    const getSubjectResult = (subject) => {
+      if (!subject || typeof subject !== "object") return null;
+      const directCandidates = [subject.bal, subject.result, subject.score];
+      for (const candidate of directCandidates) {
+        if (candidate != null && !Number.isNaN(Number(candidate))) {
+          return Math.round(Number(candidate) * 100) / 100;
+        }
+      }
+      return null;
+    };
 
     if (rows && rows.length > 0) {
       const studentInfo = {
@@ -1411,13 +1898,34 @@ app.get("/api/check-result/:kod", async (req, res) => {
         // Xəta olsa belə, əsas nəticələri göstər
       }
 
+      // Əgər şagird cavabları (Excel) yüklənibsə, əsas cədvəldə də həmin rəqəmləri göstər (exceldə olduğu kimi)
+      let displaySubjects = subjects || [];
+      let displayTotalResult = totalResult || 0;
+      let displaySubjectCount = rows.length || 0;
+      if (studentAnswers && studentAnswers.subjects && studentAnswers.subjects.length > 0) {
+        displaySubjects = studentAnswers.subjects.map((s) => ({
+          subject: s.subjectName || s.subject || "",
+          result: getSubjectResult(s),
+          correctAnswer: s.correctAnswers ?? null,
+          wrongAnswer: s.wrongAnswers ?? null,
+          rejectedAnswer: s.rejectedAnswers ?? null,
+          openQuestion: null,
+          successRate: null,
+        }));
+        displayTotalResult =
+          studentAnswers.totalScore != null
+            ? studentAnswers.totalScore
+            : displaySubjects.reduce((sum, s) => sum + (parseFloat(s.result) || 0), 0) || 0;
+        displaySubjectCount = displaySubjects.length;
+      }
+
       res.json({
         success: true,
         data: {
           ...studentInfo,
-          subjects: subjects || [],
-          totalResult: totalResult || 0,
-          subjectCount: rows.length || 0,
+          subjects: displaySubjects,
+          totalResult: displayTotalResult,
+          subjectCount: displaySubjectCount,
           excelData: allExcelData || {},
           studentAnswers: studentAnswers
             ? {
@@ -1426,6 +1934,8 @@ app.get("/api/check-result/:kod", async (req, res) => {
                 wrongAnswers: studentAnswers.wrongAnswers || 0,
                 subjects: studentAnswers.subjects || [],
                 sheetName: studentAnswers.sheetName || "",
+                pdfPageNumber: studentAnswers.pdfPageNumber || null,
+                hasPdfScreenshot: !!(studentAnswers.pdfGridfsId && studentAnswers.pdfPageNumber),
               }
             : null,
         },
@@ -1439,7 +1949,7 @@ app.get("/api/check-result/:kod", async (req, res) => {
       if (studentAnswers && studentAnswers.subjects && studentAnswers.subjects.length > 0) {
         const subs = (studentAnswers.subjects || []).map((s) => ({
           subject: s.subjectName || s.subject || "",
-          result: s.bal != null ? s.bal : null,
+          result: getSubjectResult(s),
           correctAnswer: s.correctAnswers ?? null,
           wrongAnswer: s.wrongAnswers ?? null,
           rejectedAnswer: s.rejectedAnswers ?? null,
@@ -1471,6 +1981,8 @@ app.get("/api/check-result/:kod", async (req, res) => {
               wrongAnswers: studentAnswers.wrongAnswers || 0,
               subjects: studentAnswers.subjects || [],
               sheetName: studentAnswers.sheetName || "",
+              pdfPageNumber: studentAnswers.pdfPageNumber || null,
+              hasPdfScreenshot: !!(studentAnswers.pdfGridfsId && studentAnswers.pdfPageNumber),
             },
           },
         });
@@ -1484,6 +1996,39 @@ app.get("/api/check-result/:kod", async (req, res) => {
   } catch (err) {
     console.error("Veritabanı xətası:", err);
     return res.status(500).json({ error: "Veritabanı xətası!" });
+  }
+});
+
+// Tələbə cavablarının PDF faylını göstər (tələbə bloku olan səhifə ilə); tələbə koduna görə
+app.get("/api/student-answer-pdf/:studentCode", async (req, res) => {
+  try {
+    if (!db || !client) await connectToMongoDB();
+    const studentAnswersCollection = db.collection("student_answers");
+    const student = await studentAnswersCollection.findOne({
+      studentCode: String(req.params.studentCode).trim(),
+    });
+    if (!student || !student.pdfGridfsId) {
+      return res.status(404).json({ error: "Bu tələbə üçün PDF tapılmadı." });
+    }
+    const bucket = new GridFSBucket(db, { bucketName: "student_answer_pdfs" });
+    const downloadStream = bucket.openDownloadStream(student.pdfGridfsId);
+    downloadStream.on("error", (err) => {
+      console.error("Student answer PDF download xətası:", err);
+      if (!res.headersSent) res.status(404).json({ error: "PDF faylı tapılmadı." });
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    if (student.pdfPageNumber) {
+      res.setHeader("X-Page-Number", String(student.pdfPageNumber));
+    }
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="cavablar_${student.studentCode}.pdf"`
+    );
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    downloadStream.pipe(res);
+  } catch (err) {
+    console.error("Student answer PDF xətası:", err);
+    if (!res.headersSent) res.status(500).json({ error: "Server xətası." });
   }
 });
 
@@ -2649,16 +3194,10 @@ app.get("/api/view-answers/:sinif", async (req, res) => {
 });
 
 // Şagird cavabları upload endpoint
-// student_results.xlsx formatında Excel faylını qəbul edir
-// Format: "Şagird" sheet-i şagird kodlarını ehtiva edir
-// Hər şagird üçün ayrı sheet var (məsələn "ST001", "ST002")
-// Hər şagird sheet-ində:
-//   - 1-ci sətir: Etalon cavablar
-//   - 2-ci sətir: Şagirdin cavabları
-//   - 3-cü sətir: Düzgün/səhv işarələri (+ və ya -)
+// Qəbul edir: Excel (.xlsx, .xls) və ya PDF (BİLLİS nəticə formatı)
 app.post(
   "/api/upload-student-answers",
-  upload.single("studentAnswersFile"),
+  uploadStudentAnswers.single("studentAnswersFile"),
   async (req, res) => {
     console.log("Şagird cavabları upload request received:", req.file);
     try {
@@ -2675,7 +3214,96 @@ app.post(
 
       if (!req.file) {
         console.log("No file received");
-        return res.status(400).json({ error: "Excel faylı seçilməyib!" });
+        return res.status(400).json({ error: "Excel və ya PDF faylı seçilməyib!" });
+      }
+
+      const isPdf =
+        req.file.mimetype === "application/pdf" ||
+        (req.file.originalname && req.file.originalname.toLowerCase().endsWith(".pdf"));
+
+      if (isPdf) {
+        const studentAnswersCollection = db.collection("student_answers");
+        let totalProcessed = 0;
+        let totalErrors = 0;
+        const processedSheets = [];
+        try {
+          const pdfData = await pdfParse(req.file.buffer);
+          const students = parseBillisPdfText(pdfData.text || "");
+          const studentCodes = students.map((s) => s.studentCode);
+          const pageByCode = await getStudentPageNumbersFromPdf(req.file.buffer, studentCodes);
+
+          let pdfGridfsId = null;
+          const bucket = new GridFSBucket(db, { bucketName: "student_answer_pdfs" });
+          const uploadStream = bucket.openUploadStream(
+            `student_answers_${Date.now()}_${(req.file.originalname || "upload.pdf").replace(/[^a-zA-Z0-9.-]/g, "_")}`,
+            { metadata: { originalName: req.file.originalname, uploadDate: new Date() } }
+          );
+          pdfGridfsId = await new Promise((resolve, reject) => {
+            uploadStream.on("finish", () => resolve(uploadStream.id));
+            uploadStream.on("error", reject);
+            uploadStream.end(req.file.buffer);
+          });
+
+          for (const stu of students) {
+            try {
+              const totalQuestions = stu.subjects.reduce((s, sub) => s + (sub.totalQuestions || 0), 0);
+              const totalCorrect = stu.subjects.reduce((s, sub) => s + (sub.correctAnswers || 0), 0);
+              const totalWrong = stu.subjects.reduce((s, sub) => s + (sub.wrongAnswers || 0), 0);
+              const document = {
+                studentCode: stu.studentCode,
+                sheetName: stu.studentCode,
+                studentName: stu.studentName || "",
+                totalScore: stu.totalScore,
+                subjects: stu.subjects,
+                totalQuestions,
+                correctAnswers: totalCorrect,
+                wrongAnswers: totalWrong,
+                fileName: req.file.originalname,
+                uploadDate: new Date(),
+                pdfGridfsId: pdfGridfsId || undefined,
+                pdfPageNumber: pageByCode[stu.studentCode] || undefined,
+              };
+              await studentAnswersCollection.updateOne(
+                { studentCode: stu.studentCode },
+                { $set: document },
+                { upsert: true }
+              );
+              totalProcessed++;
+              processedSheets.push({
+                sheetName: stu.studentCode,
+                studentCode: stu.studentCode,
+                studentName: stu.studentName,
+                subjectsCount: stu.subjects.length,
+                totalQuestions,
+                correctAnswers: totalCorrect,
+                wrongAnswers: totalWrong,
+                processed: true,
+                hasPdfPage: !!pageByCode[stu.studentCode],
+              });
+            } catch (err) {
+              console.error("PDF şagird save xətası:", stu.studentCode, err);
+              processedSheets.push({
+                sheetName: stu.studentCode,
+                processed: false,
+                error: err.message,
+              });
+              totalErrors++;
+            }
+          }
+          return res.json({
+            success: true,
+            message: `${totalProcessed} şagirdin cavabları (PDF) uğurla yükləndi. Tələbə blokunu PDF-də səhifə ilə birlikdə göstərmək mümkündür.`,
+            processedCount: totalProcessed,
+            errorCount: totalErrors,
+            sheets: processedSheets,
+            fileName: req.file.originalname,
+          });
+        } catch (pdfErr) {
+          console.error("PDF parse xətası:", pdfErr);
+          return res.status(400).json({
+            error: "PDF faylı oxuna bilmədi: " + (pdfErr.message || "Naməlum xəta"),
+          });
+        }
       }
 
       const workbook = xlsx.read(req.file.buffer, { type: "buffer" });
@@ -2717,6 +3345,15 @@ app.post(
               console.log(`${sheetName} üçün məlumat çıxarılmadı, atlanır`);
               processedSheets.push({ sheetName, processed: false, error: "Məlumat çıxarılmadı" });
               continue;
+            }
+            if (sheetName === "300025" && parsed.subjects && parsed.subjects[0]) {
+              console.log("300025 parse nəticəsi (summary xanalarından):", {
+                fənn: parsed.subjects[0].subjectName,
+                düz: parsed.subjects[0].correctAnswers,
+                səhv: parsed.subjects[0].wrongAnswers,
+                imtina: parsed.subjects[0].rejectedAnswers,
+                bal: parsed.subjects[0].bal,
+              });
             }
             const totalQuestions = parsed.subjects.reduce(
               (s, sub) => s + (sub.totalQuestions || 0),
@@ -3051,9 +3688,9 @@ app.post(
         fileName: req.file.originalname,
       });
     } catch (error) {
-      console.error("Şagird cavabları Excel fayl işlənmə xətası:", error);
+      console.error("Şagird cavabları fayl işlənmə xətası:", error);
       res.status(500).json({
-        error: "Excel fayl işlənərkən xəta baş verdi: " + error.message,
+        error: "Fayl işlənərkən xəta baş verdi: " + error.message,
       });
     }
   }

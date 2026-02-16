@@ -312,16 +312,16 @@ const AdminPanel = () => {
       const validTypes = [
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel",
+        "application/pdf",
       ];
+      const validExt = /\.(xlsx|xls|pdf)$/i.test(selectedFile.name);
 
-      if (validTypes.includes(selectedFile.type) || 
-          selectedFile.name.endsWith(".xlsx") || 
-          selectedFile.name.endsWith(".xls")) {
+      if (validTypes.includes(selectedFile.type) || validExt) {
         setStudentAnswersFile(selectedFile);
         setStudentAnswersError("");
         setStudentAnswersUploadResult(null);
       } else {
-        setStudentAnswersError("Yalnız Excel faylları (.xlsx, .xls) qəbul edilir!");
+        setStudentAnswersError("Yalnız Excel (.xlsx, .xls) və ya PDF faylları qəbul edilir!");
         setStudentAnswersFile(null);
       }
     }
@@ -330,7 +330,7 @@ const AdminPanel = () => {
   const handleStudentAnswersUpload = async (e) => {
     e.preventDefault();
     if (!studentAnswersFile) {
-      setStudentAnswersError("Zəhmət olmasa Excel faylı seçin!");
+      setStudentAnswersError("Zəhmət olmasa Excel və ya PDF faylı seçin!");
       return;
     }
 
@@ -904,7 +904,7 @@ const AdminPanel = () => {
               htmlFor="studentAnswersFile"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
-              Excel Faylı Seçin (student_results.xlsx formatında)
+              Excel və ya PDF Faylı Seçin
             </label>
             <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
               <div className="space-y-1 text-center">
@@ -931,7 +931,7 @@ const AdminPanel = () => {
                       id="studentAnswersFile"
                       name="studentAnswersFile"
                       type="file"
-                      accept=".xlsx,.xls"
+                      accept=".xlsx,.xls,.pdf"
                       onChange={handleStudentAnswersFileChange}
                       className="sr-only"
                     />
@@ -939,7 +939,7 @@ const AdminPanel = () => {
                   <p className="pl-1">və ya buraya sürükləyin</p>
                 </div>
                 <p className="text-xs text-gray-500">
-                  Excel faylları (.xlsx, .xls) - student_results.xlsx formatında
+                  Excel (.xlsx, .xls) və ya PDF (BİLLİS nəticə formatı)
                 </p>
               </div>
             </div>
